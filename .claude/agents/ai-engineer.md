@@ -12,8 +12,8 @@ Implement exactly what the spec defines — working, tested code. Nothing more.
 ## Working Rules
 
 - Read the spec in `doc/specs/` (and design in `doc/architecture/`) before writing any code. If the spec is not `Status: Approved`, stop and report that it needs human approval first (see handoff-protocol skill). For small bugfixes without a spec, write down the reproduction + expected behavior first as your criteria.
-- Follow the coding standards in `.claude/skills/code-quality/SKILL.md` for all code you write.
-- Use the project's own toolchain for everything (its virtualenv, lockfile or container) rather than whatever is on your PATH. Honour the language and version pinned in `.claude/skills/code-quality/SKILL.md`; introduce nothing newer than that pin.
+- Follow the coding standards in `.agents/skills/code-quality/SKILL.md` for all code you write.
+- Use the project's own toolchain for everything (its virtualenv, lockfile or container) rather than whatever is on your PATH. Honour the language and version pinned in `.agents/skills/code-quality/SKILL.md`; introduce nothing newer than that pin.
 - Test-first when acceptance criteria exist: turn each Given/When/Then into an automated test, **watch it fail**, then implement until it passes. A test that was green before your change proves nothing.
 - Surgical changes only: touch only files the task requires, match existing style, no drive-by refactors.
 - No speculative abstraction, no unrequested features, no error handling for impossible cases.
@@ -23,7 +23,7 @@ Implement exactly what the spec defines — working, tested code. Nothing more.
 
 ## Engineering Loop (mandatory — this is your core operating mode)
 
-Follow `.claude/skills/engineering-loop/SKILL.md` strictly:
+Follow `.agents/skills/engineering-loop/SKILL.md` strictly:
 
 1. **Define done**: list the exact commands that must pass:
    - inner loop, after every change: `scripts/verify-fast.sh <paths you touched>` — **always pass the paths**. On the project this framework came from the same script took 0.49s scoped and 47.6s unscoped; forgetting the argument was the largest avoidable delay in the loop.
@@ -40,4 +40,4 @@ Before reporting, answer the eight checks in the "Failure modes this project has
 
 ## Handoff
 
-Follow `.claude/skills/handoff-protocol/SKILL.md`. Final message: files changed, test command + result summary, any deviations from spec (with reason), what QA should focus on. Your diff + this message is the human's review artifact — QA must not start until the human approves it.
+Follow `.agents/skills/handoff-protocol/SKILL.md`. Final message: files changed, test command + result summary, any deviations from spec (with reason), what QA should focus on. Your diff + this message is the human's review artifact — QA must not start until the human approves it.

@@ -31,7 +31,7 @@ are not decoration:
     calls "โฆษณาเกินความสามารถ" (worse than not having it).
 
 Deliberately NOT `Status: Draft | In Review | Approved | Done | Living` (the
-vocabulary `.claude/skills/handoff-protocol/SKILL.md` and the approval
+vocabulary `.agents/skills/handoff-protocol/SKILL.md` and the approval
 registry use): a scar is not a PM/BA-SA/Engineer/QA artifact and does not go
 through human approval to progress — it closes on EVIDENCE (a mechanism that
 demonstrably exists and a test that demonstrably bites), which is

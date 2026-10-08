@@ -71,6 +71,12 @@ _REAL_SCAR_NESTED_SUITE = "python3 -m pytest tests/scars/ -q"
 #: checker (`tests/coordinator/`, `scripts/coordinator_lint.py`).
 _REAL_COORD_STEP = '"coordinator|python3 -m pytest tests/coordinator/ -q"'
 _REAL_COORD_NESTED_SUITE = "python3 -m pytest tests/coordinator/ -q"
+#: The fifth permanent step, added with the open-standard layout
+#: (`tests/framework/`, `scripts/check_neutrality.py`, `scripts/memory_lint.py`).
+_REAL_FRAMEWORK_STEP = (
+    '"framework|python3 -m pytest tests/framework/ -q && python3 scripts/check_neutrality.py && python3 scripts/memory_lint.py"'
+)
+_REAL_FRAMEWORK_NESTED_SUITE = "python3 -m pytest tests/framework/ -q"
 _PLACEHOLDER_STEPS = (
     '"lint|echo TODO: set the lint command in scripts/verify-full.sh"',
     '"format|echo TODO: set the format --check command"',
@@ -98,6 +104,7 @@ def _copy(tmp_path: Path, source: Path, *replacements: tuple[str, str]) -> Path:
     assert _REAL_CI_NESTED_SUITE not in body, "copy still invokes the ci-examples suite — would recurse"
     assert _REAL_SCAR_NESTED_SUITE not in body, "copy still invokes the scar-forge suite — would recurse"
     assert _REAL_COORD_NESTED_SUITE not in body, "copy still invokes the coordinator-constitution suite — would recurse"
+    assert _REAL_FRAMEWORK_NESTED_SUITE not in body, "copy still invokes the framework suite — would recurse"
     (tmp_path / "scripts").mkdir(exist_ok=True)
     probe = tmp_path / "scripts" / source.name
     probe.write_text(body, encoding="utf-8")
@@ -128,6 +135,7 @@ def test_the_gate_never_says_green_while_a_step_is_an_unfilled_placeholder(
         (_REAL_CI_STEP, '"ci-examples|echo 11 passed"'),
         (_REAL_SCAR_STEP, '"scar-forge|echo 16 passed"'),
         (_REAL_COORD_STEP, '"coordinator|echo 19 passed"'),
+        (_REAL_FRAMEWORK_STEP, '"framework|echo framework ran"'),
     )
 
     result = _run(probe)
@@ -150,6 +158,7 @@ def test_a_placeholder_step_is_labelled_todo_not_ok(tmp_path: Path) -> None:
         (_REAL_CI_STEP, '"ci-examples|echo 11 passed"'),
         (_REAL_SCAR_STEP, '"scar-forge|echo 16 passed"'),
         (_REAL_COORD_STEP, '"coordinator|echo 19 passed"'),
+        (_REAL_FRAMEWORK_STEP, '"framework|echo framework ran"'),
     )
 
     result = _run(probe)
@@ -171,6 +180,7 @@ def test_a_fully_configured_gate_can_still_reach_green(tmp_path: Path) -> None:
         (_REAL_CI_STEP, '"ci-examples|echo ci-examples ran"'),
         (_REAL_SCAR_STEP, '"scar-forge|echo scar-forge ran"'),
         (_REAL_COORD_STEP, '"coordinator|echo coordinator-constitution ran"'),
+        (_REAL_FRAMEWORK_STEP, '"framework|echo framework ran"'),
     ]
     for placeholder in _PLACEHOLDER_STEPS:
         label = placeholder.split("|", 1)[0].strip('"')
@@ -195,6 +205,7 @@ def test_the_gate_reports_red_and_exits_1_when_a_configured_step_fails(tmp_path:
         (_REAL_CI_STEP, '"ci-examples|echo ci-examples ran"'),
         (_REAL_SCAR_STEP, '"scar-forge|echo scar-forge ran"'),
         (_REAL_COORD_STEP, '"coordinator|echo coordinator-constitution ran"'),
+        (_REAL_FRAMEWORK_STEP, '"framework|echo framework ran"'),
     )
 
     result = _run(probe)
@@ -243,6 +254,15 @@ def test_the_gate_still_wires_in_the_coordinator_constitution_suite(tmp_path: Pa
     assert "echo TODO" not in _REAL_COORD_STEP, (
         "the coordinator-constitution step has decayed into a placeholder"
     )
+
+
+def test_the_gate_still_wires_in_the_framework_suite(tmp_path: Path) -> None:
+    """Same property, a fifth step over. Portability is a claim the exit gate
+    must re-prove on every handoff, or a provider name creeps back into the
+    core and the memory index outgrows its budget without a sound."""
+    body = _FULL.read_text(encoding="utf-8")
+    assert _REAL_FRAMEWORK_STEP in body, "the exit gate no longer runs the framework proof"
+    assert "echo TODO" not in _REAL_FRAMEWORK_STEP, "the framework step has decayed into a placeholder"
 
 
 # ---------------------------------------------------------------------------

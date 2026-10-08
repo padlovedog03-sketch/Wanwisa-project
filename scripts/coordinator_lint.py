@@ -21,8 +21,8 @@ registry without checking whether the human meant it.
   `INSTRUCTION:` markup at all — that text is invisible to this checker by
   design (see the constitution's own honesty section). This is a grammar
   check over an OPT-IN markup, not natural-language detection over arbitrary
-  prose — the substring-matching failure that made `.claude/hooks/
-  guard_bash.py` block its own test harness is exactly what this design
+  prose — the substring-matching failure that made the bash
+  interception guard block its own test harness is exactly what this design
   avoids repeating one level up.
 * Rules ๒ (never describe state from memory) and ๕'s general case (a brief
   conflicting with an approved doc's CONTENT, not just an unapproved doc)
@@ -58,7 +58,7 @@ _CHECKED_DOCS_RE = re.compile(r"^CHECKED-AGAINST-APPROVED-DOCS:\s*(.+?)\s*$", re
 _LOOKAHEAD_LINES = 3
 
 #: Rule 1: a `MEASURED:` command matching any of these truncates its own
-#: view — the exact shapes named in `.claude/skills/coordinator-discipline/
+#: view — the exact shapes named in `.agents/skills/coordinator-discipline/
 #: SKILL.md` rule 1 (head/tail, a hard limit, a swallowed error, `-k`/`-m`
 #: filtering, `--lf`).
 _TRUNCATING_PATTERNS = (
@@ -149,7 +149,7 @@ def check_instructions(text: str, base_dir: Path = _REPO_ROOT) -> list[Violation
     """Rule 4: every `INSTRUCTION:` needs a `PROVENANCE:` tag naming OWNER,
     an APPROVED document, or the coordinator's own JUDGEMENT. If APPROVED is
     named, the path must exist and its document must say `Status: Approved`
-    — reusing the same check `.claude/hooks/guard_agent_spawn.py` already
+    — reusing the same check the spawn interception guard already
     performs for one narrow case (spawning an implementer).
 
     `base_dir` resolves `APPROVED <path>` — overridable so tests can point it

@@ -77,7 +77,7 @@ steps:
   # ด่าน 3 — ห้ามมีตัวยึดหลงเหลือในไฟล์ที่ไม่ใช่ template
   - script: |
       set -euo pipefail
-      LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude doc scripts CLAUDE.md README.md 2>/dev/null \
+      LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude .agents doc scripts AGENTS.md README.md 2>/dev/null \
              | grep -v 'doc/framework/' | grep -v 'doc/templates/' \
              | grep -v 'scripts/bootstrap.sh' || true)
       if [ -n "$LEFT" ]; then

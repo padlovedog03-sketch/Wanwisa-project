@@ -41,7 +41,7 @@ jobs:
       # เอเจนต์แก้ hook ในเครื่องได้ แต่แก้ขั้นตอนนี้ไม่ได้ — มันจึงเป็นชั้นเดียว
       # ที่ทำให้ "มีแต่มนุษย์ที่อนุมัติได้" เป็นจริงแทนที่จะเป็นความตั้งใจ
       #
-      # ทะเบียนอยู่นอก repo (ที่ ~/.claude/approvals/registry.jsonl) จึงต้อง
+      # ทะเบียนอยู่นอก repo (ที่ ~/.jarvis/approvals/registry.jsonl) จึงต้อง
       # ให้ CI อ่านจากที่ที่ทีมเก็บไว้ เช่น repo แยกที่เขียนได้เฉพาะคน หรือ
       # secret — เลือกทางแล้วแก้ REGISTRY ให้ตรง
       # ---------------------------------------------------------------
@@ -102,7 +102,7 @@ jobs:
       - name: ไม่มีตัวยึดหลงเหลือ
         run: |
           set -euo pipefail
-          LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude doc scripts CLAUDE.md README.md 2>/dev/null \
+          LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude .agents doc scripts AGENTS.md README.md 2>/dev/null \
                  | grep -v 'doc/framework/' | grep -v 'doc/templates/' \
                  | grep -v 'scripts/bootstrap.sh' || true)
           if [ -n "$LEFT" ]; then

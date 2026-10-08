@@ -12,7 +12,7 @@ read -r -p "path ที่เก็บโค้ดหน้าเว็บ (เ�
 [ -z "$PKG" ] && { echo "ต้องมีชื่อแพ็กเกจ" >&2; exit 1; }
 
 FILES=$(grep -rl '<PROJECT>\|<PACKAGE>\|<BACKEND_REPO_PATH>\|<FRONTEND_REPO_PATH>\|<FRONTEND_REPO>' \
-        .claude doc scripts CLAUDE.md README.md 2>/dev/null || true)
+        .claude .agents doc scripts AGENTS.md README.md 2>/dev/null || true)
 [ -z "$FILES" ] && { echo "ไม่พบตัวยึด — เหมือนจะ bootstrap ไปแล้ว"; exit 0; }
 
 python3 - "$PROJECT" "$PKG" "$BACKEND" "$FRONTEND" <<'PY'
@@ -26,13 +26,13 @@ subs = {
     '<FRONTEND_REPO>': pathlib.Path(frontend).name if frontend else '(none)',
 }
 n = 0
-for root in ('.claude', 'doc', 'scripts'):
+for root in ('.claude', '.agents', 'doc', 'scripts'):
     for p in pathlib.Path(root).rglob('*'):
         if p.is_file() and p.suffix in {'.md', '.py', '.json', '.yaml', '.yml'}:
             s = p.read_text(encoding='utf-8'); o = s
             for a, b in subs.items(): s = s.replace(a, b)
             if s != o: p.write_text(s, encoding='utf-8'); n += 1
-for name in ('CLAUDE.md', 'README.md'):
+for name in ('AGENTS.md', 'README.md'):
     p = pathlib.Path(name)
     if p.exists():
         s = p.read_text(encoding='utf-8'); o = s
@@ -41,9 +41,9 @@ for name in ('CLAUDE.md', 'README.md'):
 print(f"แทนที่ตัวยึดใน {n} ไฟล์")
 PY
 
-mkdir -p ~/.claude/approvals && touch ~/.claude/approvals/registry.jsonl
+mkdir -p ~/.jarvis/approvals && touch ~/.jarvis/approvals/registry.jsonl
 echo
-echo "เรียบร้อย — ทะเบียนอนุมัติอยู่ที่ ~/.claude/approvals/registry.jsonl (มนุษย์เท่านั้นที่เขียนได้)"
+echo "เรียบร้อย — ทะเบียนอนุมัติอยู่ที่ ~/.jarvis/approvals/registry.jsonl (มนุษย์เท่านั้นที่เขียนได้)"
 echo "อนุมัติเอกสารด้วย: scripts/approve.sh --list แล้ว scripts/approve.sh <slug> --by <ชื่อคุณ>"
 
 # Report what is still unfilled. A placeholder that survives bootstrap is the most
@@ -53,7 +53,7 @@ echo "== ตัวยึดที่ยังเหลือ (ต้องเต
 # bootstrap.sh itself names every placeholder in its own substitution table, and
 # doc/templates + doc/framework are *meant* to keep theirs — excluding them is the
 # difference between a report you read and a report you learn to ignore.
-LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude doc scripts CLAUDE.md README.md 2>/dev/null \
+LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude .agents doc scripts AGENTS.md README.md 2>/dev/null \
        | grep -v 'doc/framework/' | grep -v 'doc/templates/' \
        | grep -v 'scripts/bootstrap.sh' || true)
 if [ -z "$LEFT" ]; then
@@ -64,5 +64,5 @@ else
   echo "  (ตัวยึดใน doc/templates/ กับ doc/framework/ เป็นของถูกต้อง ไม่ต้องเติม)"
 fi
 echo
-echo "ขั้นต่อไป: เติมหัวข้อที่ยังเป็น <...> ใน CLAUDE.md, ตั้งคำสั่งใน scripts/verify-*.sh,"
-echo "แล้วเปิด Claude Code ในโฟลเดอร์นี้"
+echo "ขั้นต่อไป: เติมหัวข้อที่ยังเป็น <...> ใน AGENTS.md, ตั้งคำสั่งใน scripts/verify-*.sh,"
+echo "แล้วเปิดผู้ช่วย AI ที่คุณใช้ในโฟลเดอร์นี้ (ตัวเชื่อมที่รองรับอยู่ใน doc/framework/ADAPTERS.md)"

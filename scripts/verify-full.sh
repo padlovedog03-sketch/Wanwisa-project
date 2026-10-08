@@ -33,6 +33,11 @@ STEPS=(
   # untagged count claim, a truncating MEASURED: command, an untagged
   # instruction, and a missing SELF-REPORT: block.
   "coordinator|python3 -m pytest tests/coordinator/ -q"
+  # Open-standard layout and portability (RUNTIME-CONTRACT criteria 1-4):
+  # provider names stay out of layers 0-1, project memory keeps its
+  # lifecycle, skill links resolve, and the commit-time fallback for
+  # assistants without interception really refuses a planted violation.
+  "framework|python3 -m pytest tests/framework/ -q && python3 scripts/check_neutrality.py && python3 scripts/memory_lint.py"
 )
 # -----------------------------------------------------------------------------
 

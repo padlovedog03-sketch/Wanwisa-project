@@ -6,7 +6,7 @@ least once during real work — into machine-enforced blocks:
 
 * **A1'** destructive discard on a dirty tree. `git checkout -- <path>`,
   `git restore <path>`, `git reset --hard` and `git clean -f` silently delete
-  uncommitted work. One `git checkout validation-rules.yaml` destroyed a whole
+  uncommitted work. One `git checkout <config file>` destroyed a whole
   wave's config edits and took the suite from 1297 passed to 164 failed.
   Branch switches (`git checkout -b`, `git checkout <branch>`) and `git stash`
   are NOT blocked — they do not discard.

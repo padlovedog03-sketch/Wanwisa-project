@@ -226,7 +226,7 @@ def test_no_spec_named_blocks_and_explains_both_remedies() -> None:
 
 
 def test_the_override_with_a_reproduction_allows_the_spawn() -> None:
-    """CLAUDE.md §5 permits a small bugfix with a clear reproduction to start
+    """AGENTS.md §5 permits a small bugfix with a clear reproduction to start
     at the engineer — the section that actually carries the rule. The hook's
     own message cited §6 (the approval gates) until 2026-08-12; a guard that
     misdirects the reader to the wrong rule teaches the wrong rule."""

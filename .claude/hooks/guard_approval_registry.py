@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deny agent writes to the human-only approval registry — the framework spec §3.B3, ADR-1.
 
-WHY THIS EXISTS: CLAUDE.md §6 rule 2 says only the human's approval flips an
+WHY THIS EXISTS: AGENTS.md §6 rule 2 says only the human's approval flips an
 artifact to `Approved`. Nothing enforced that, because nothing distinguished a
 status an agent wrote from one a human approved. The registry is the evidence
 store; this hook stops an agent writing into it.
@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 
 _REGISTRY_ENV = "APPROVAL_LOG"
-_DEFAULT_REGISTRY = Path.home() / ".claude" / "approvals" / "registry.jsonl"
+_DEFAULT_REGISTRY = Path.home() / ".jarvis" / "approvals" / "registry.jsonl"
 
 # Tools that write file content directly.
 _WRITE_TOOLS = frozenset({"Write", "Edit", "NotebookEdit", "MultiEdit"})
@@ -84,7 +84,7 @@ def main() -> None:
     print(
         f"BLOCKED (.claude/hooks/guard_approval_registry.py, rule B3): "
         f"{candidate} is the human-only approval registry.\n"
-        f"CLAUDE.md §6 rule 2: only the human's approval flips an artifact to "
+        f"AGENTS.md §6 rule 2: only the human's approval flips an artifact to "
         f"`Approved`. An agent writing its own approval evidence is the exact "
         f"failure this registry exists to prevent.\n"
         f"If an artifact needs approving, present the handoff and end the turn. "

@@ -3,7 +3,7 @@
 
 WHY: on the project this framework came from, 83 tracked documents claimed
 `Status: Approved` and nothing distinguished a status an agent wrote from one
-a human approved — which made CLAUDE.md §6 rule 2 unenforceable.
+a human approved — which made AGENTS.md §6 rule 2 unenforceable.
 
 **Division of responsibility, so neither check is weakened to accommodate the
 other:**
@@ -19,7 +19,7 @@ unsatisfiable by any amount of agent work — and an unsatisfiable check gets
 disabled. Splitting it means each half is enforceable today.
 
 Registry format — one JSON object per line at
-`${APPROVAL_LOG:-~/.claude/approvals/registry.jsonl}`:
+`${APPROVAL_LOG:-~/.jarvis/approvals/registry.jsonl}`:
 
     {"key": "spec-payment-refunds-2026-01-15", "artifact": "doc/specs/SPEC-payment-refunds.md",
      "status": "Approved", "approved_by": "<human>",
@@ -48,11 +48,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION — must agree with `scripts/approve.py` and
-# `.claude/hooks/guard_approval_registry.py`; the agreement is pinned by
+# the interception adapter's approval guard (`doc/framework/ADAPTERS.md`);
+# the agreement is pinned by
 # `tests/hooks/test_verify_approvals.py`.
 # ---------------------------------------------------------------------------
 _REGISTRY_ENV = "APPROVAL_LOG"
-_DEFAULT_REGISTRY = Path.home() / ".claude" / "approvals" / "registry.jsonl"
+_DEFAULT_REGISTRY = Path.home() / ".jarvis" / "approvals" / "registry.jsonl"
 
 #: Where approvable documents live. `doc/templates/` and `doc/framework/` are
 #: excluded on purpose: templates carry placeholder lines by design.

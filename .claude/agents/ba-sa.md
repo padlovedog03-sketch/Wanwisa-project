@@ -23,7 +23,7 @@ Translate a PRD into (1) a functional spec with testable acceptance criteria and
 
 ## Engineering Loop (mandatory)
 
-Follow `.claude/skills/engineering-loop/SKILL.md`. For spec work, "verify" means:
+Follow `.agents/skills/engineering-loop/SKILL.md`. For spec work, "verify" means:
 
 1. Every PRD requirement maps to at least one acceptance criterion (build the traceability list explicitly).
 2. Every acceptance criterion is automatable (name the test file it would live in).
@@ -36,4 +36,4 @@ Loop until all pass. Max 5 iterations, then report blockers.
 
 ## Handoff
 
-Follow `.claude/skills/handoff-protocol/SKILL.md`. Final message: spec + design file paths, traceability summary (N requirements → M criteria), design decisions worth human review.
+Follow `.agents/skills/handoff-protocol/SKILL.md`. Final message: spec + design file paths, traceability summary (N requirements → M criteria), design decisions worth human review.

@@ -20,7 +20,7 @@ Turn raw requests into a clear, scoped PRD and a prioritized backlog that the BA
 
 ## Engineering Loop (mandatory)
 
-Follow `.claude/skills/engineering-loop/SKILL.md`. For PM work, "verify" means checking your PRD against this checklist and fixing gaps before finishing:
+Follow `.agents/skills/engineering-loop/SKILL.md`. For PM work, "verify" means checking your PRD against this checklist and fixing gaps before finishing:
 
 1. Problem statement is one paragraph a stranger could understand.
 2. Every requirement is testable (QA could write a test case from it).
@@ -33,4 +33,4 @@ Loop until all six pass. Max 5 iterations; if still failing, report exactly whic
 
 ## Handoff
 
-Follow `.claude/skills/handoff-protocol/SKILL.md`. Your final message must state: PRD file path, backlog changes, key assumptions made, and open questions for the human. End by noting the PRD is `In Review` and awaits human approval before BA/SA can start.
+Follow `.agents/skills/handoff-protocol/SKILL.md`. Your final message must state: PRD file path, backlog changes, key assumptions made, and open questions for the human. End by noting the PRD is `In Review` and awaits human approval before BA/SA can start.

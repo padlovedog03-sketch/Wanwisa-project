@@ -14,10 +14,11 @@
 cp -R jarvis-framework ~/Desktop/my-new-project
 cd ~/Desktop/my-new-project
 ./scripts/bootstrap.sh          # ถามชื่อโปรเจกต์แล้วแทนที่ตัวยึดให้
-git init && git add -A && git commit -m "chore: start from jarvis-framework"
+git init && git config core.hooksPath .githooks   # เปิดด่านก่อนคอมมิต
+git add -A && git commit -m "chore: start from jarvis-framework"
 ```
 
-แล้วเปิด Claude Code ในโฟลเดอร์นั้น พิมพ์ว่าอยากทำอะไร จาร์วิสจะเริ่มจากการถามให้ชัดก่อนลงมือ
+แล้วเปิดผู้ช่วย AI ที่คุณใช้ในโฟลเดอร์นั้น (Claude Code หรือเครื่องมือใดก็ได้ที่อ่าน `AGENTS.md` — ดู `doc/framework/ADAPTERS.md`) พิมพ์ว่าอยากทำอะไร จาร์วิสจะเริ่มจากการถามให้ชัดก่อนลงมือ
 
 ---
 
@@ -57,7 +58,7 @@ git init && git add -A && git commit -m "chore: start from jarvis-framework"
 
 ### 3. จาร์วิสก็มีกฎคุมเหมือนกัน
 
-`.claude/skills/coordinator-discipline/` คือส่วนที่เราค้นพบทีหลังและแพงที่สุด — ตอนแรกทุกกฎเขียนไว้
+`.agents/skills/coordinator-discipline/` คือส่วนที่เราค้นพบทีหลังและแพงที่สุด — ตอนแรกทุกกฎเขียนไว้
 คุมเอเจนต์ ไม่มีอะไรคุมตัวผู้ประสานงาน แล้วปรากฏว่า**คนที่ผิดบ่อยที่สุดคือคนที่ไม่มีกฎ**
 
 ---
@@ -78,7 +79,7 @@ git init && git add -A && git commit -m "chore: start from jarvis-framework"
 
 ## เมื่อมีอะไรผิดพลาด
 
-พับบทเรียนกลับเข้าเฟรมเวิร์กทันที ไม่ต้องรอสั่ง — แก้ที่ `.claude/skills/` หรือ `doc/framework/WHY.md` แล้วเขียน
+พับบทเรียนกลับเข้าเฟรมเวิร์กทันที ไม่ต้องรอสั่ง — แก้ที่ `.agents/skills/` หรือ `doc/framework/WHY.md` แล้วเขียน
 กำกับว่า **ความผิดพลาดอะไรทำให้กฎข้อนี้เกิดขึ้น**
 
 กฎที่ไม่มีเรื่องเล่ากำกับ คือกฎที่คนรุ่นถัดไปจะลบทิ้งเพราะไม่เข้าใจว่ามีไว้ทำไม
@@ -88,18 +89,20 @@ git init && git add -A && git commit -m "chore: start from jarvis-framework"
 ## โครงสร้าง
 
 ```
-.claude/
-  agents/     นิยามทีม 6 ตัว
-  skills/     วิธีทำงานร่วมกัน + วินัยของผู้ประสานงาน
-  hooks/      ด่านอัตโนมัติ 4 ตัว
-  settings.json
+AGENTS.md     สมุดกฎกลาง (มาตรฐานเปิด) — เครื่องมือหลายค่ายอ่านไฟล์นี้
+.agents/
+  skills/     วิธีทำงานร่วมกัน + วินัยของผู้ประสานงาน (มาตรฐานเปิด SKILL.md)
+.githooks/    ด่านก่อนคอมมิต — ใช้กับทุกคนทุกเครื่องมือ
+CLAUDE.md     ตัวเชื่อม Claude Code: ดึง AGENTS.md เข้ามาเท่านั้น
+.claude/      ตัวเชื่อม Claude Code: agents/ (ทีม 6 ตัว) · hooks/ (ด่านดักล่วงหน้า 4 ตัว) · skills/ (ลิงก์)
 doc/
-  framework/  WHY.md (ทำไมกฎแต่ละข้อถึงมีอยู่) · SETUP.md (ครึ่งชั่วโมงแรก)
+  framework/  WHY.md (ทำไมกฎแต่ละข้อถึงมีอยู่) · SETUP.md (ครึ่งชั่วโมงแรก) · ADAPTERS.md (ตัวเชื่อมแต่ละเครื่องมือ)
+  memory/     ความจำของโปรเจกต์ — มติและบทเรียนที่ทุกเครื่องมืออ่านได้
   templates/  เริ่มเอกสารทุกฉบับจากที่นี่
   requirements/ specs/ architecture/ qa/ tasks/   ← งานของโปรเจกต์คุณ
 scripts/
   bootstrap.sh    ตั้งชื่อโปรเจกต์
   verify-fast.sh  ใช้ระหว่างแก้
   verify-full.sh  ประตูออกก่อนส่งมอบ
-tests/hooks/    เทสต์ของด่านอัตโนมัติ
+tests/         เทสต์ของด่านทุกตัว — แต่ละตัวพิสูจน์ว่าล้มได้จริง
 ```

@@ -85,7 +85,7 @@ Green tests prove nothing about whether an assertion has teeth. Real instance: a
 → Check: inject the violation the guard exists to catch (a phantom field, a truncated file, a fake manifest entry), show it goes **red naming the violation**, revert, show green, and confirm zero residue with `grep -c`.
 
 **3. Never discard uncommitted work.**
-One `git checkout <path>` on a dirty tree destroyed a wave of config edits and took the suite from 1297 passed to 164 failed. This is now blocked by `.claude/hooks/guard_bash.py`.
+One `git checkout <path>` on a dirty tree destroyed a wave of config edits and took the suite from 1297 passed to 164 failed. This is now blocked by the interception adapter's bash guard (`doc/framework/ADAPTERS.md`); an assistant without interception has no such block, which that file declares.
 → Check: `git stash` or commit before any discard. If the discard is genuinely intended, use the `ALLOW_DESTRUCTIVE=1` prefix so the choice is on the record.
 
 **4. Do not relay a number you did not verify.**

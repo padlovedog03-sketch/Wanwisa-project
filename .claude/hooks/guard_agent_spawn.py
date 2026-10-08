@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse gate on the `Agent` (subagent-spawn) tool — the framework spec §3.A5, ADR-2.
 
-WHY THIS EXISTS: CLAUDE.md §6 rule 2 says an implementer agent must refuse to
+WHY THIS EXISTS: AGENTS.md §6 rule 2 says an implementer agent must refuse to
 start when its upstream spec is not `Approved`. That was prose, and prose does
 not fail. This blocks the spawn instead.
 
@@ -13,7 +13,7 @@ substring matching to command-position matching.
 
 **Fail-closed, with an explicit override.** When the prompt names no spec the
 spawn is blocked, because a warning on a spawn is useless: by the time anyone
-reads it the subagent is already running. CLAUDE.md §5 does permit "small
+reads it the subagent is already running. AGENTS.md §5 does permit "small
 bugfixes may start at the engineer", so a no-spec spawn is sometimes legitimate
 — hence an override token rather than a prohibition, modelled on Set 1's
 `ALLOW_DESTRUCTIVE=1`: the choice becomes visible in the transcript instead
@@ -45,7 +45,7 @@ _MIN_OVERRIDE_REASON_CHARS = 10
 
 # Upstream references we accept in a prompt: a bare filename or a repo path.
 #
-# The prefixes must match what `.claude/skills/handoff-protocol/SKILL.md` mandates,
+# The prefixes must match what `.agents/skills/handoff-protocol/SKILL.md` mandates,
 # and each one lives in its own directory — a DESIGN document is not in `doc/specs/`.
 # Keeping the two in sync matters: a prefix this pattern does not accept cannot be
 # named as an upstream at all, so the gate silently demands the override token for
@@ -114,7 +114,7 @@ def main() -> None:
         _block(
             f"BLOCKED (.claude/hooks/guard_agent_spawn.py, rule A5): "
             f"`{_OVERRIDE_TOKEN}` is present but carries no reproduction.\n"
-            f"CLAUDE.md §5 allows a small bugfix to start at {subagent_type} "
+            f"AGENTS.md §5 allows a small bugfix to start at {subagent_type} "
             f"without a spec, but the basis has to be stated. Write "
             f"`{_OVERRIDE_TOKEN} <one-line reproduction>` "
             f"(at least {_MIN_OVERRIDE_REASON_CHARS} characters)."
@@ -125,12 +125,12 @@ def main() -> None:
         _block(
             f"BLOCKED (.claude/hooks/guard_agent_spawn.py, rule A5): spawning "
             f"`{subagent_type}` with no upstream spec named in the prompt.\n"
-            f"CLAUDE.md §6 rule 2: an implementer must not start without an "
+            f"AGENTS.md §6 rule 2: an implementer must not start without an "
             f"`Approved` upstream document.\n"
             f"Do one of these:\n"
             f"  1. name the spec in the prompt (e.g. `doc/specs/SPEC-NN-....md`);\n"
             f"  2. if this is a small bugfix that legitimately has no spec "
-            f"(CLAUDE.md §6), add `{_OVERRIDE_TOKEN} <one-line reproduction>` so "
+            f"(AGENTS.md §6), add `{_OVERRIDE_TOKEN} <one-line reproduction>` so "
             f"the basis is on the record.\n"
             f"Only `ai-engineer` and `frontend-engineer` are gated — `qa`, "
             f"`ba-sa`, `pm`, `Explore` and the rest are never blocked."
@@ -163,7 +163,7 @@ def main() -> None:
         f"BLOCKED (.claude/hooks/guard_agent_spawn.py, rule A5): none of the "
         f"specs named in this `{subagent_type}` prompt is `{_ALLOWED_STATUS}`.\n"
         + "\n".join(f"  - {problem}" for problem in problems)
-        + f"\nCLAUDE.md §6 rule 2: only the human's approval flips an artifact to "
+        + f"\nAGENTS.md §6 rule 2: only the human's approval flips an artifact to "
         f"`{_ALLOWED_STATUS}`, and an agent must refuse to start before that.\n"
         f"If the human has authorised implementation ahead of the status flip, "
         f"say so in the prompt and use `{_OVERRIDE_TOKEN} <reason>` — do NOT edit "

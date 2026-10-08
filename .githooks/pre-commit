@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Interception fallback for any assistant — or human — that cannot be stopped
+# BEFORE it acts (RUNTIME-CONTRACT C1, "ทางถอยเมื่อไม่มี"). Runs the layer-1
+# checks at commit time instead. Weaker than interception, and declared so in
+# doc/framework/ADAPTERS.md: it catches a forged approval or a scar closed
+# with no trace before it is recorded, but it cannot stop a destructive
+# command, and `git commit --no-verify` skips it. The protected-branch CI
+# (ci-examples/) is the layer nobody can skip.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+fail=0
+for check in scripts/verify_approvals.py scripts/scar_status.py scripts/memory_lint.py scripts/check_neutrality.py; do
+  if ! out=$(python3 "$check" 2>&1); then
+    echo "pre-commit: FAIL $check"
+    echo "$out" | sed 's/^/    /'
+    fail=1
+  fi
+done
+if [[ $fail -ne 0 ]]; then
+  echo "pre-commit: blocked — fix the failures above. --no-verify skips this hook, not CI, which runs the same checks."
+fi
+exit $fail

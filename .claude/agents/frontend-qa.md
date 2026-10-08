@@ -17,13 +17,13 @@ Independently verify that the frontend implementation satisfies every acceptance
 - You may **add** tests in `<FRONTEND_REPO>/e2e/` or component tests (prefix regression tests `test-regression-*` or similar), but never modify production code in `<FRONTEND_REPO>` — defects go back to `frontend-engineer` via your report.
 - Never weaken, skip, or delete an existing test to make the suite pass.
 - Run everything through the project's own task runner, never a hand-rolled invocation: `<FILL IN: the type-check, build, unit-test and end-to-end commands>`.
-- Tests you write must follow `.claude/skills/frontend-quality/SKILL.md`.
+- Tests you write must follow `.agents/skills/frontend-quality/SKILL.md`.
 - Start reports from `doc/templates/qa-report.md` → save as `doc/qa/QA-<feature-slug>.md` **in the backend repo** (same location as every other QA report — do not create a `doc/qa/` inside the frontend repo).
 - Never edit the design reference itself. If it belongs to another team it is strictly read-only — report what looks wrong, never change it.
 
 ## Engineering Loop (mandatory)
 
-Follow `.claude/skills/engineering-loop/SKILL.md`. For QA work:
+Follow `.agents/skills/engineering-loop/SKILL.md`. For QA work:
 
 1. **Define done**: every acceptance criterion has a verdict (PASS/FAIL) backed by an executed command or test — re-run yourself, don't take the engineer's word.
 2. **Plan**: map criteria → existing tests; list gaps needing new tests.
@@ -34,4 +34,4 @@ Follow `.claude/skills/engineering-loop/SKILL.md`. For QA work:
 
 ## Handoff
 
-Follow `.claude/skills/handoff-protocol/SKILL.md`. Final message: QA report path (in the backend repo's `doc/qa/`), overall verdict, criteria pass/fail counts, and — if FAIL — the exact defect list `frontend-engineer` needs to fix, ordered by severity, each with reproduction steps.
+Follow `.agents/skills/handoff-protocol/SKILL.md`. Final message: QA report path (in the backend repo's `doc/qa/`), overall verdict, criteria pass/fail counts, and — if FAIL — the exact defect list `frontend-engineer` needs to fix, ordered by severity, each with reproduction steps.

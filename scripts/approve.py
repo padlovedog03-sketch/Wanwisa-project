@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Register the human's approval of one or more documents, by slug.
 
-CLAUDE.md §6 rule 2: only the human's approval flips an artifact to
+AGENTS.md §6 rule 2: only the human's approval flips an artifact to
 `Status: Approved`, and only the human may append to the approval registry
-(`.claude/hooks/guard_approval_registry.py` blocks every agent `Write`/`Edit`
-to it).
+(the interception adapter's approval guard — listed in
+`doc/framework/ADAPTERS.md` — blocks every agent write to it).
 
 WHY THIS EXISTS: on the project this framework came from, the ceremony — not
 the rule — was the bottleneck. Each approval was a ~25-line command composed
@@ -18,19 +18,19 @@ is both shorter to type and safer than prose regenerated every time.
 **What this script deliberately does NOT change:** the human is still the
 actor. This file cannot approve anything on its own, an agent running it is
 still an agent writing to the registry, and the property that matters — that
-a human chose — comes from a human invoking it. Per CLAUDE.md §6 the local
+a human chose — comes from a human invoking it. Per AGENTS.md §6 the local
 guards make forgery tamper-evident rather than impossible; the real
 enforcement is the CI check on the protected branch. This script changes the
 typing, not the trust model.
 
-Usage (through Claude Code's `!` prefix, or any shell):
+Usage (through an assistant's run-a-shell-line prefix (`!`), or any shell):
     scripts/approve.sh --list                    # what awaits approval
     scripts/approve.sh <slug> --by <your-name>   # approve every In Review doc for that slug
     scripts/approve.sh <slug> --dry-run          # show what would happen, write nothing
 
 There is no confirmation prompt: naming the slugs is the deliberate act, and
 the first version's `confirm? [y/N]` aborted every real run because the owner
-types this through Claude Code's `!` prefix, which supplies no tty.
+types this through an assistant's run-a-shell-line prefix (`!`), which supplies no tty.
 
 Every candidate is validated before ANYTHING is written. One bad document
 aborts the whole run, so a batch can never half-apply.
@@ -54,7 +54,8 @@ from pathlib import Path
 #
 # The registry contract is shared by THREE consumers: this script (writes),
 # `scripts/verify_approvals.py` (verifies) and
-# `.claude/hooks/guard_approval_registry.py` (denies agent writes). They must
+# the interception adapter's approval guard (denies agent writes; listed in
+# `doc/framework/ADAPTERS.md`). They must
 # agree on REGISTRY_ENV and DEFAULT_REGISTRY, and
 # `tests/hooks/test_verify_approvals.py` pins that agreement — change one
 # without the others and a test names the drift.
@@ -66,7 +67,7 @@ from pathlib import Path
 DOC_DIRS = ("doc/requirements", "doc/specs", "doc/architecture", "doc/qa", "doc/tasks")
 
 #: The status a document must be in to be approvable, out of the vocabulary
-#: CLAUDE.md §5 fixes (`Draft | In Review | Approved | Done | Living`).
+#: AGENTS.md §5 fixes (`Draft | In Review | Approved | Done | Living`).
 #: `Draft` is excluded on purpose: the pipeline's own gate is that a document
 #: is reviewed before it is approved, and approving straight out of Draft
 #: skips the review it names.
@@ -80,7 +81,7 @@ REQUIRED_SECTION = "## Approval history"
 #: The registry: one JSON object per line, entries
 #: {key, artifact, status, approved_by, approved_at, evidence}.
 REGISTRY_ENV = "APPROVAL_LOG"
-DEFAULT_REGISTRY = Path.home() / ".claude" / "approvals" / "registry.jsonl"
+DEFAULT_REGISTRY = Path.home() / ".jarvis" / "approvals" / "registry.jsonl"
 
 #: Registry key shape. `stem` is the slugified filename, `date` is YYYY-MM-DD.
 KEY_TEMPLATE = "{stem}-{date}"
@@ -99,7 +100,7 @@ APPROVER_ENV = "APPROVER"
 #   3. the REQUIRED_SECTION must exist (an approval must record what it replaced);
 #   4. all-or-nothing batching (a half-applied batch leaves the registry
 #      disagreeing with the documents about which are approved);
-#   5. no confirmation prompt (Claude Code's `!` prefix has no tty; the first
+#   5. no confirmation prompt (an assistant's run-a-shell-line prefix (`!`) has no tty; the first
 #      version's prompt aborted every real run while looking like a refusal).
 # ---------------------------------------------------------------------------
 
@@ -347,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {candidate.relative}\n      key: {candidate.key}")
 
     # No confirmation prompt, deliberately. The first version asked `confirm?
-    # [y/N]` and was unusable: the owner types this through Claude Code's `!`
+    # [y/N]` and was unusable: the owner types this through an assistant's `!`
     # prefix, which supplies no tty, so `input()` hit EOF and aborted every
     # run. It also bought nothing — naming the slugs explicitly IS the
     # deliberate act, and a prompt that cannot be answered is friction with no

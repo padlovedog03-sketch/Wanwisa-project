@@ -102,7 +102,7 @@ def test_an_untagged_claim_is_flagged(tmp_path: Path) -> None:
 
 
 def test_a_measured_claim_with_a_truncating_command_is_flagged(tmp_path: Path) -> None:
-    """The exact failure mode named in `.claude/skills/coordinator-discipline/
+    """The exact failure mode named in `.agents/skills/coordinator-discipline/
     SKILL.md` rule 1: a count claimed from a command with a `head`/`tail`/
     `2>/dev/null`/`-m`/`-k` in it.
 

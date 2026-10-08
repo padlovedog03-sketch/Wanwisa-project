@@ -5,7 +5,7 @@ description: Mechanical pre-flight checks for the coordinating assistant (the ma
 
 # Coordinator discipline
 
-Every other artefact in `.claude/` governs an agent. Nothing governed the coordinator, and over two
+Every other artefact in this framework governs an agent. Nothing governed the coordinator, and over two
 days of autonomous work the coordinator made **14 wrong assertions — every one caught by someone
 else, none self-caught.** This file is the missing guard. It is not advice; each rule names the
 failure that produced it and the command that prevents it.

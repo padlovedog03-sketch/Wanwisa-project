@@ -8,7 +8,7 @@ a protected branch — a test claiming more would be the false assurance this
 whole set exists to remove.
 
 Every case uses a temporary registry via `APPROVAL_LOG`, so the real
-`~/.claude/approvals/registry.jsonl` is never touched.
+`~/.jarvis/approvals/registry.jsonl` is never touched.
 
 Run: `python3 -m pytest tests/hooks/ -q`   (no project dependencies required)
 """
@@ -123,7 +123,7 @@ def test_writes_to_any_other_path_are_allowed(registry: Path, tmp_path: Path) ->
     for candidate in (
         str(_REPO_ROOT / "doc" / "specs" / "SPEC-anything.md"),
         str(tmp_path / "unrelated.txt"),
-        str(_REPO_ROOT / "CLAUDE.md"),
+        str(_REPO_ROOT / "AGENTS.md"),
     ):
         result = _run_hook("Write", registry, file_path=candidate)
         assert result.returncode == _EXIT_ALLOW, f"{candidate}: {result.stderr}"

@@ -1,6 +1,6 @@
 """`scripts/approve.py` — the human's approval helper, and the refusals it owes.
 
-CLAUDE.md §6 rule 2 says only the human's approval flips a document to
+AGENTS.md §6 rule 2 says only the human's approval flips a document to
 `Status: Approved`. This script shortens the typing without loosening the rule,
 so what needs pinning is not the happy path (one line of `sub`) but every
 refusal — each of which exists because the corresponding failure actually

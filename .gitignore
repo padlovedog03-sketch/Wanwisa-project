@@ -10,3 +10,4 @@ __pycache__/
 .next/
 dist/
 build/
+scripts/neutrality-denylist.local.txt

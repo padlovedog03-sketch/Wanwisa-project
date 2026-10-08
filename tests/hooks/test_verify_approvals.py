@@ -9,7 +9,7 @@ protected branch. A test claiming more than that would be the false assurance
 this whole set removes.
 
 Every case uses a temporary registry via `APPROVAL_LOG`, so the real
-`~/.claude/approvals/registry.jsonl` is never read or written.
+`~/.jarvis/approvals/registry.jsonl` is never read or written.
 
 Run: `python3 -m pytest tests/hooks/ -q`   (no project dependencies required)
 """
