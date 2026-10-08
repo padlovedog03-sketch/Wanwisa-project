@@ -6,3 +6,4 @@
 `doc/framework/ADAPTERS.md`
 
 @AGENTS.md
+@doc/memory/INDEX.md
