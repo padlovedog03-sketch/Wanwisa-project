@@ -1,4 +1,15 @@
 {
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f)",
+      "Bash(git push * -f *)",
+      "Bash(az * delete*)",
+      "Bash(az group delete*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -35,6 +46,16 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_report_background.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/correction_rate.py\" --brief"
           }
         ]
       }

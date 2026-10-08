@@ -4,6 +4,7 @@ description: Durable lessons and owner rulings live in doc/memory/, never only i
 type: feedback
 status: active
 date: 2026-10-08
+mechanism: scripts/memory_lint.py
 source: framework scar — a tool-private memory index grew to 253 lines against a 200-line load limit, hiding its newest 53 entries at every session start, and no other tool or teammate could read it
 ---
 

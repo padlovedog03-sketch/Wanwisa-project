@@ -188,14 +188,14 @@ def test_runs_on_and_pool_name_a_real_hosted_runner() -> None:
     assert ado["pool"]["vmImage"] == "ubuntu-latest"
 
 
-def test_the_four_gate_names_match_between_the_two_files_in_order() -> None:
+def test_the_five_gate_names_match_between_the_two_files_in_order() -> None:
     """The header comment in `azure-pipelines.yml` promises "the same gates,
     only the syntax differs" — this is what makes that promise checkable
     instead of aspirational."""
     gh_names = [s.get("name") for s in _gh_steps()[1:]]  # [0] is checkout, unnamed
     ado_names = [s.get("displayName") for s in _ado_steps()[1:]]
     assert gh_names == ado_names
-    assert len(gh_names) == 4, gh_names
+    assert len(gh_names) == 5, gh_names
 
 
 # ---------------------------------------------------------------------------

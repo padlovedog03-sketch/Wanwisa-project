@@ -33,7 +33,7 @@ Upstream: [`RUNTIME-CONTRACT.md`](RUNTIME-CONTRACT.md) — "ตัวเชื�
 
 ## ข — ผู้ช่วยใดก็ได้ที่อ่าน `AGENTS.md` + git (ไม่มี C1)
 
-**ไฟล์ของตัวเชื่อมนี้:** `AGENTS.md` · `.agents/skills/` · `.githooks/pre-commit` · `ci-examples/`
+**ไฟล์ของตัวเชื่อมนี้:** `AGENTS.md` · `.agents/skills/` · `.githooks/pre-commit` · `.githooks/commit-msg` (คอมมิต fix ต้องมีเทสต์) · `ci-examples/`
 เปิดด่านก่อนคอมมิตครั้งเดียวต่อโคลน: `git config core.hooksPath .githooks`
 
 | ความสามารถ | มี | ทางถอยที่ใช้ | สิ่งที่อ่อนลง |

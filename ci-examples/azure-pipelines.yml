@@ -91,3 +91,11 @@ steps:
   # ด่าน 4 — เทสต์ของด่านอัตโนมัติเอง
   - script: python3 -m pytest tests/hooks/ -q
     displayName: 'เทสต์ hook'
+
+  # ด่าน 5 — งานระดับ 0: คอมมิต fix ทุกตัวในคำขอรวมต้องมีเทสต์มาด้วย
+  - script: |
+      set -euo pipefail
+      target="${SYSTEM_PULLREQUEST_TARGETBRANCH#refs/heads/}"
+      python3 scripts/check_fix_has_test.py --range "origin/${target}..HEAD"
+    displayName: 'คอมมิต fix ต้องมีเทสต์'
+    condition: eq(variables['Build.Reason'], 'PullRequest')

@@ -27,6 +27,11 @@ Rules (each is exit 1):
 3. `INDEX.md` lists exactly the active entries — no superseded entry (it
    would be followed), no active entry missing (it would never be read).
 4. `INDEX.md` stays within `INDEX_BUDGET` lines.
+5. A `feedback` entry dated on or after `MECHANISM_REQUIRED_FROM` names the
+   `mechanism` that now enforces the lesson — a repo path (hook, test, script,
+   skill) that exists — or `none — <reason>`. A lesson kept only as memory works
+   only when it is remembered; on the originating project corrections per day
+   doubled from one month to the next while memory files grew to 260.
 
 Plain stdlib, no AI required (RUNTIME-CONTRACT layer ๑).
 
@@ -57,6 +62,9 @@ TYPES = {"user", "feedback", "project", "reference"}
 STATUSES = {"active", "superseded"}
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _LINK = re.compile(r"\]\(([^)]+\.md)\)")
+#: Rule 5 starts here; older lessons are grandfathered rather than backfilled.
+MECHANISM_REQUIRED_FROM = "2026-10-08"
+_MECHANISM_NONE = re.compile(r"^none\s*[—-]\s*(.{10,})$", re.IGNORECASE)
 
 
 def _dir() -> Path:
@@ -77,6 +85,21 @@ def parse_frontmatter(text: str) -> dict[str, str] | None:
         if sep:
             fields[key.strip()] = value.strip()
     return None
+
+
+def mechanism_problem(value: str, memory_dir: Path) -> str | None:
+    """Why a feedback entry's `mechanism` is unacceptable, or None (rule 5)."""
+    if not value:
+        return "feedback entry has no `mechanism` — name the hook/test/skill path, or `none — <reason>`"
+    if value.lower().startswith("none"):
+        if _MECHANISM_NONE.match(value):
+            return None
+        return "`mechanism: none` needs `— <reason>` of at least 10 characters"
+    repo_root = memory_dir.resolve().parents[1]
+    target = value.split()[0].split("::")[0].split("#")[0]
+    if (repo_root / target).exists():
+        return None
+    return f"mechanism `{target}` does not exist in the repo"
 
 
 def check(memory_dir: Path) -> list[str]:
@@ -102,6 +125,10 @@ def check(memory_dir: Path) -> list[str]:
             errors.append(f"{path.name}: status `{fm['status']}` not in {sorted(STATUSES)}")
         if fm.get("date") and not _DATE.match(fm["date"]):
             errors.append(f"{path.name}: date `{fm['date']}` is not YYYY-MM-DD")
+        if fm.get("type") == "feedback" and fm.get("date", "") >= MECHANISM_REQUIRED_FROM:
+            why = mechanism_problem(fm.get("mechanism", ""), memory_dir)
+            if why:
+                errors.append(f"{path.name}: {why}")
 
     for slug, fm in entries.items():
         if fm.get("status") != "superseded":

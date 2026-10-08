@@ -30,6 +30,7 @@ def _entry(slug: str, status: str = "active", **extra: str) -> str:
         "status": status,
         "date": "2026-10-08",
         "source": "owner, chat 2026-10-08",
+        "mechanism": "none — fixture entry, no lesson",
         **extra,
     }
     body = "\n".join(f"{k}: {v}" for k, v in fields.items())
@@ -114,3 +115,34 @@ def test_cli_exits_nonzero_on_violation(tmp_path: Path) -> None:
     )
     assert result.returncode == 1
     assert "it will never be read" in result.stdout
+
+
+# Rule 5 — a lesson names the mechanism that now enforces it.
+
+
+def test_feedback_without_mechanism_is_refused(tmp_path: Path) -> None:
+    text = _entry("a").replace("mechanism: none — fixture entry, no lesson\n", "")
+    mem = _memory(tmp_path, {"a": text}, ["- [A](a.md) — hook"])
+    assert any("no `mechanism`" in e for e in ml.check(mem))
+
+
+def test_mechanism_none_needs_a_reason(tmp_path: Path) -> None:
+    mem = _memory(tmp_path, {"a": _entry("a", mechanism="none")}, ["- [A](a.md) — hook"])
+    assert any("needs `— <reason>`" in e for e in ml.check(mem))
+
+
+def test_mechanism_path_must_exist(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "doc").mkdir(parents=True)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "real.py").write_text("", encoding="utf-8")
+    mem = _memory(repo / "doc", {"a": _entry("a", mechanism="scripts/ghost.py")}, ["- [A](a.md) — hook"])
+    assert any("does not exist" in e for e in ml.check(mem))
+    (mem / "a.md").write_text(_entry("a", mechanism="scripts/real.py"), encoding="utf-8")
+    assert ml.check(mem) == []
+
+
+def test_lessons_before_the_cutoff_are_grandfathered(tmp_path: Path) -> None:
+    text = _entry("a", date="2026-10-07").replace("mechanism: none — fixture entry, no lesson\n", "")
+    mem = _memory(tmp_path, {"a": text}, ["- [A](a.md) — hook"])
+    assert ml.check(mem) == []
