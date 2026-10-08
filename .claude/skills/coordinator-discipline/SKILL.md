@@ -95,3 +95,49 @@ coordinator, and was not applied under load.
 - A number about the wrong path is worse than no number. State which path was exercised.
 - If a measurement is flattering, check the route before reporting it.
 - Never report a percentage of completion derived from a path not walked end to end.
+
+## 7. Sizing a dispatch
+
+**Rule: slice by DELIVERABLE, never by screen or by document.** Evidence and the measured figures:
+`doc/framework/WHY.md` §10 — one screen dispatched as one card cost 494k internal tokens, 193 tool
+calls and **118 minutes**, while the same surface built slice by slice took about a third of that.
+"One card is one coherent change" was honoured in that wave; a screen genuinely is one coherent
+change, which is why that rule alone is not enough.
+
+1. **Put every slice that needs no browser first.** For a screen that is the pure-logic module and its
+   unit tests, the API client, the mock, each component, then the page composition — each verifiable
+   in seconds. The e2e specs are separate slices and are the expensive minority; do not let them set
+   the shape of the cheap majority.
+2. **An agent runs only its own test selector, and the project must SHIP that tier.** The full
+   browser suite is minutes per run and an agent will run it repeatedly. Give the repo a fast tier
+   with two forms — one for a slice with no screen (seconds: types + unit tests) and one that adds
+   the named spec(s) — and make "no argument" a deliberate error, never a silent "run everything": a
+   command that reports success while doing the wrong amount of work is the failure shape this whole
+   file exists for. Where the suite carries a failure that predates the slice, the tier compares the
+   failure set for **exact equality** against a named allowlist, so that an extra failure is red AND
+   an allowlisted one that starts passing is red — a "known failures, ignore them" message goes stale
+   and eventually talks someone out of a real red. **The coordinator runs the full suite once, at the end of the wave.**
+   Name every pre-existing failure, with its test id, in the brief — otherwise the agent spends real
+   work proving a red is not its own.
+3. **Facts measured this turn and pasted into the brief are authoritative for that dispatch.** Say so,
+   and say what the agent should spend its calls on instead. This is not a shared facts file — those
+   go stale and a stale fact everyone trusts is worse than an honest re-measurement. A brief is
+   written fresh and dies with the dispatch.
+4. **Cap the report and fix its shape:** files touched · each command with its last line · deviations
+   and why · what is unfinished · open questions. A long report lands in the coordinator's context,
+   where it competes with everything else the coordinator has to hold. Detail belongs in `doc/qa/`.
+
+```
+Slice:        <one deliverable>
+Repo/branch:  <path> / <branch>, HEAD <sha>   [measured this turn]
+Upstream:     <approved doc + registry key> — your scope is <exact criteria>
+Measured this turn, do NOT re-derive: <contracts · names · ids>
+Verify with:  <the one selector for this slice>
+Pre-existing red, NOT yours: <test ids>
+Do not:       run the full suite · commit · touch <files another slice owns>
+Report:       ≤200 words, the fixed shape
+```
+
+**This sizes a dispatch; it never lowers the rigour inside one.** Proof-of-red, the separate structure
+and visual-token verdicts, and "state every divergence" apply to a 15-minute slice exactly as to a
+two-hour one. Apply it at the **next** dispatch — never to narrow a wave already running.
