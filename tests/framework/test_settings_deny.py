@@ -20,6 +20,9 @@ REQUIRED_DENY = (
     "Bash(git push * --force*)",
     "Bash(git push * -f)",
     "Bash(git push * -f *)",
+    "Bash(git -C * push --force*)",
+    "Bash(git -C * push -f*)",
+    "Bash(git -C * push * --force*)",
     "Bash(az * delete*)",
 )
 
