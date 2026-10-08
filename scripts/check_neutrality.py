@@ -62,7 +62,10 @@ PROVIDER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-PLACEHOLDER = "<PROJECT>"
+#: Spelled in two parts on purpose: `scripts/bootstrap.sh` rewrites every literal
+#: placeholder under `scripts/`, and a checker whose marker had been rewritten
+#: would mistake every bootstrapped project for the template.
+PLACEHOLDER = "<" + "PROJECT>"
 DENYLIST_NAME = "scripts/neutrality-denylist.local.txt"
 _SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 

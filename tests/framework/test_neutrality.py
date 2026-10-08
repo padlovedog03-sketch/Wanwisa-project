@@ -93,12 +93,11 @@ def test_bootstrapped_project_skips_loudly(tmp_path: Path) -> None:
 
 
 def test_denylist_is_git_ignored() -> None:
-    result = subprocess.run(
-        ["git", "check-ignore", "-q", "scripts/neutrality-denylist.local.txt"],
-        cwd=_REPO_ROOT,
-        check=False,
+    """Read `.gitignore` itself, so this holds in a fresh copy with no `.git` yet."""
+    ignored = (_REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "scripts/neutrality-denylist.local.txt" in ignored, (
+        "the denylist names a project; it must never be committed"
     )
-    assert result.returncode == 0, "the denylist names a project; it must never be committed"
 
 
 def test_claude_shim_imports_agents_md_and_holds_no_rules() -> None:

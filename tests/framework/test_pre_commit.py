@@ -27,13 +27,17 @@ def _git(repo: Path, *args: str, env: dict[str, str]) -> subprocess.CompletedPro
 
 
 def _clone_template(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """A minimal template repo: the hook, the layer-1 scripts, this repo's memory
+    and scars, and a placeholder AGENTS.md. Built from parts, not by copying the
+    whole repo, so the test means the same thing in a project made from this
+    template — where AGENTS.md is filled in and real approvals exist."""
     repo = tmp_path / "repo"
-    shutil.copytree(
-        _REPO_ROOT,
-        repo,
-        symlinks=True,
-        ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.local.txt"),
-    )
+    repo.mkdir()
+    ignore = shutil.ignore_patterns("__pycache__", "*.local.txt")
+    for rel in (".githooks", "scripts", "doc/memory", "doc/scars", "doc/templates"):
+        if (_REPO_ROOT / rel).is_dir():
+            shutil.copytree(_REPO_ROOT / rel, repo / rel, ignore=ignore)
+    (repo / "AGENTS.md").write_text("# AGENTS.md — <PROJECT>\nrules\n", encoding="utf-8")
     env = {
         **os.environ,
         "APPROVAL_LOG": str(tmp_path / "registry.jsonl"),
@@ -42,8 +46,8 @@ def _clone_template(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@example.invalid",
     }
-    env.pop("MEMORY_DIR", None)
-    env.pop("NEUTRALITY_ROOT", None)
+    for var in ("MEMORY_DIR", "NEUTRALITY_ROOT", "SCAR_DIR"):
+        env.pop(var, None)
     _git(repo, "init", "-q", env=env)
     _git(repo, "config", "core.hooksPath", ".githooks", env=env)
     return repo, env
@@ -75,8 +79,7 @@ def test_planted_provider_name_is_refused(tmp_path: Path) -> None:
     repo, env = _clone_template(tmp_path)
     _git(repo, "add", "-A", env=env)
     assert _git(repo, "commit", "-q", "-m", "clean", env=env).returncode == 0
-    skill = repo / ".agents" / "skills" / "engineering-loop" / "SKILL.md"
-    skill.write_text(skill.read_text(encoding="utf-8") + "\nOnly works on OpenAI.\n", encoding="utf-8")
+    (repo / "scripts" / "planted.py").write_text("# Only works on OpenAI.\n", encoding="utf-8")
     _git(repo, "add", "-A", env=env)
     result = _git(repo, "commit", "-q", "-m", "planted", env=env)
     assert result.returncode != 0
