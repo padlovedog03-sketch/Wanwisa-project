@@ -22,7 +22,8 @@ Judge one handed-back change against its acceptance criteria before QA sees it. 
 Start from `doc/templates/review-report.md` and save it as `doc/qa/REVIEW-<slug>.md`, where `<slug>` is the spec's file name after `SPEC-` (for `doc/specs/SPEC-07-refunds.md` that is `REVIEW-07-refunds.md`). For `NO_SPEC_BUGFIX:` work use `doc/qa/REVIEW-bugfix-<id>.md` and name it in the QA brief.
 
 - `Author-run:` the run ID from the engineer's handback.
-- `Reviewer-run:` your own run ID, as your adapter exposes it (`doc/framework/ADAPTERS.md`). If you cannot see it, leave `<id>` and say so in your handback; the coordinator fills it from the spawn result. The QA spawn gate refuses an unfilled or equal pair.
+- `Reviewer-run:` your own run ID: in this adapter, the subagent agent ID of this run (an isolated worktree's name carries it, `agent-<id>`). If you cannot see it, leave `<id>` and say so in your handback; the coordinator fills it from the spawn result.
+- For QA on one increment of a multi-increment spec, name the file `REVIEW-<slug>-<increment>.md` and keep `Upstream:` pointing at the spec; the QA brief names that file. The QA spawn gate refuses an unfilled or equal pair.
 - `Verdict: PASS` or `Verdict: FAIL`, exactly one word. Any FAIL anywhere in the file keeps the gate shut.
 
 **LIMIT (stated, not glossed):** the spawn gate (`.claude/hooks/guard_agent_spawn.py`) checks only that the two run IDs differ and the verdict is PASS. That proves two runs, not that this review ignored the author's conversation. That part rests on this definition being followed.

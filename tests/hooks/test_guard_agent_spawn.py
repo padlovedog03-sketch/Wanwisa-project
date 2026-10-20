@@ -526,6 +526,20 @@ def test_every_named_review_must_pass(review_doc) -> None:
     assert "REVIEW-zz99-b.md" in result.stderr
 
 
+def test_a_named_review_of_another_spec_does_not_cover_the_named_spec(review_doc) -> None:
+    """Accident shape: a PASS review of other work quoted in a QA prompt for SPEC-zz99-a."""
+    review_doc(_GOOD_REVIEW.replace(f"SPEC-{_PROBE_SLUG}.md", "SPEC-zz99-b.md"), name="REVIEW-zz99-b.md")
+    result = _run_gate(subagent_type="qa", prompt="Verify doc/specs/SPEC-zz99-a.md; see REVIEW-zz99-b.md.")
+    assert result.returncode == _EXIT_BLOCK, result.stdout
+    assert "Upstream" in result.stderr and "SPEC-zz99-a.md" in result.stderr
+
+
+def test_an_increment_scoped_review_of_the_named_spec_allows(review_doc) -> None:
+    review_doc(_GOOD_REVIEW.replace(f"SPEC-{_PROBE_SLUG}.md", "SPEC-zz99-a.md"), name="REVIEW-zz99-a-E.md")
+    result = _run_gate(subagent_type="qa", prompt="Verify doc/specs/SPEC-zz99-a.md increment E; REVIEW-zz99-a-E.md.")
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
 def test_the_bugfix_override_does_not_bypass_the_review_gate() -> None:
     """The engineer's override token must not open the QA gate."""
     result = _run_gate(

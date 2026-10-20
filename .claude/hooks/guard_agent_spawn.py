@@ -19,8 +19,11 @@ each `REVIEW-*.md` the prompt names, or else each `SPEC-<slug>.md` it names;
 `NO_SPEC_BUGFIX:` work must name a `REVIEW-bugfix-<id>.md`. The engineer's
 override token never opens this gate. STATED LIMIT: different run IDs prove two
 runs, not that the reviewer ignored the author's conversation — that part is the
-`reviewer` agent definition's instruction. A prompt that explicitly names a
-REVIEW file is taken at its word about which review covers the work.
+`reviewer` agent definition's instruction. An explicitly named REVIEW file must
+carry an `Upstream:` naming one of the prompt's SPEC files (when it names any),
+so increment-scoped names like `REVIEW-<slug>-E.md` work. A REVIEW derived from
+the SPEC name covers every increment of that spec: name the increment's review
+explicitly in each QA prompt.
 
 **Fail-closed, with an explicit override.** When the prompt names no spec the
 spawn is blocked, because a warning on a spawn is useless: by the time anyone
@@ -121,8 +124,9 @@ def _normalise_run_id(value: str) -> str:
     return value.casefold()
 
 
-def _review_problem(path: Path) -> str | None:
+def _review_problem(path: Path, specs: list[str]) -> str | None:
     """Why the review at `path` does not open the QA gate, or None if it does.
+    When `specs` is non-empty the review's `Upstream:` must name one of them.
     Never raises: a crash exits 1, and only exit 2 blocks."""
     try:
         text = path.read_text(encoding="utf-8")
@@ -147,17 +151,26 @@ def _review_problem(path: Path) -> str | None:
         run_ids[field] = value
     if run_ids["Author-run"] == run_ids["Reviewer-run"]:
         return "`Reviewer-run:` equals `Author-run:` — the author cannot grade its own work"
+    if specs:
+        upstream = re.search(_RUN_LINE.format(field="Upstream"), text, re.MULTILINE)
+        if not upstream or not any(spec in upstream.group(1) for spec in specs):
+            return f"its `Upstream:` names none of {', '.join(specs)} — it reviews other work"
     return None
 
 
 def _check_review(subagent_type: str, prompt: str) -> None:
     """E-AC2: block a QA spawn that has no independent PASS review. Exits."""
     named = list(dict.fromkeys(_REVIEW_REFERENCE_PATTERN.findall(prompt)))
+    slugs = list(dict.fromkeys(_SPEC_SLUG_PATTERN.findall(prompt)))
+    # An explicitly named review must review a spec this prompt names, so a PASS
+    # review of other work quoted for context cannot open the gate by accident.
+    specs = [f"SPEC-{slug}.md" for slug in slugs] if named else []
     if _OVERRIDE_TOKEN in prompt:
         required = [name for name in named if name.startswith(_BUGFIX_REVIEW_PREFIX)]
         wanted = f"{_REVIEW_DIR}/{_BUGFIX_REVIEW_PREFIX}<id>.md"
+        specs = []
     else:
-        required = named or [f"REVIEW-{slug}.md" for slug in dict.fromkeys(_SPEC_SLUG_PATTERN.findall(prompt))]
+        required = named or [f"REVIEW-{slug}.md" for slug in slugs]
         wanted = f"{_REVIEW_DIR}/REVIEW-<slug>.md (or the SPEC it reviews)"
     if not required:
         problems = [f"the prompt names no {wanted}"]
@@ -165,7 +178,7 @@ def _check_review(subagent_type: str, prompt: str) -> None:
         root = _repo_root()
         problems = []
         for name in required:
-            problem = _review_problem(root / _REVIEW_DIR / name)
+            problem = _review_problem(root / _REVIEW_DIR / name, specs)
             if problem:
                 problems.append(f"{_REVIEW_DIR}/{name}: {problem}")
     if not problems:
