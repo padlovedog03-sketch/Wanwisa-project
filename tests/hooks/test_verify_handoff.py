@@ -948,3 +948,52 @@ def test_leak_an_exported_lint_is_not_run(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stdout
     assert "lint" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Regression — a broken JUnit report (QA-verify-tiers-merge-gate-B D1)
+# ---------------------------------------------------------------------------
+
+#: A selector killed mid-run: it leaves a JUnit file the parser cannot read.
+_BROKEN_JUNIT = {
+    "empty": "",
+    "truncated": '<testsuites><testsuite><testcase name="a"',
+    "not-xml": "this is not xml at all\n",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_BROKEN_JUNIT))
+def test_regression_a_broken_junit_report_is_red_with_one_banner_and_a_record(
+        tmp_path: Path, kind: str) -> None:
+    bad = ("import os, pathlib\n"
+           "pathlib.Path(os.environ['VERIFY_JUNIT_DIR'], 'x.xml').write_text(%r)\n"
+           % _BROKEN_JUNIT[kind])
+    probe = _repo(tmp_path, _conf_text(VERIFY_SELECT_CMD="python3 scripts/bad.py"),
+                  extra={"scripts/bad.py": bad})
+
+    result = _run(probe)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    banners = [ln for ln in result.stdout.splitlines() if ln.startswith("HANDOFF TIER")]
+    assert banners == [_last(result)], result.stdout
+    assert _last(result).startswith("HANDOFF TIER RED"), result.stdout
+    assert any(ln.startswith("failed: unreadable JUnit report") and "x.xml" in ln
+               for ln in result.stdout.splitlines()), result.stdout
+    assert _record(tmp_path, result)["verdict"] == "RED"
+
+
+def test_regression_a_recorder_that_exits_1_without_a_verdict_is_red(tmp_path: Path) -> None:
+    """The wrapper must not take exit 1 alone as the recorder's verdict."""
+    probe = _repo(tmp_path)
+    recorder = tmp_path / "scripts" / "verify_record.py"
+    body = recorder.read_text(encoding="utf-8")
+    anchor = "    run_dir = Path(args.run_dir)\n    selection = json.loads("
+    assert body.count(anchor) == 1
+    recorder.write_text(body.replace(anchor, "    sys.exit(1)\n" + anchor), encoding="utf-8")
+
+    result = _run(probe)
+
+    assert result.returncode == 1, result.stdout
+    banners = [ln for ln in result.stdout.splitlines() if ln.startswith("HANDOFF TIER")]
+    assert banners == ["HANDOFF TIER RED — recorder failed (finalize exit 1)"], result.stdout
+    assert _last(result) == banners[0]

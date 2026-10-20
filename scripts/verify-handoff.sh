@@ -172,12 +172,18 @@ printf '%s\t%s\t%s\t0\t%s\n' "$label" "$rc" "$secs" "$VERIFY_JUNIT_DIR" >>"$RUN_
 
 # ---- counts, tree identity, record; the banner is the last line ------------------
 TREE_AFTER="$(python3 -I scripts/verify_record.py tree-hash)"
-python3 -I scripts/verify_record.py finalize --tier handoff --run-dir "$RUN_DIR" \
+# An exit code alone is not a verdict: a crashed recorder also exits 1. Trust it
+# only when its last line is the banner and the record it names exists.
+fin_rc=0
+summary="$(python3 -I scripts/verify_record.py finalize --tier handoff --run-dir "$RUN_DIR" \
   --started-at "$STARTED_AT" --tree-before "$TREE_BEFORE" --tree-after "$TREE_AFTER" \
   --conf-present --collect-file "$RUN_DIR/collect.txt" --collect-rc "$crc" \
-  ${allow_args[@]+"${allow_args[@]}"}
-fin_rc=$?
-case "$fin_rc" in
-  0 | 1) exit "$fin_rc" ;;
-  *) echo "HANDOFF TIER RED — recorder failed (finalize exit ${fin_rc})"; exit 1 ;;
+  ${allow_args[@]+"${allow_args[@]}"})" || fin_rc=$?
+case "$fin_rc:$(printf '%s\n' "$summary" | tail -1)" in
+  "0:HANDOFF TIER — "* | "1:HANDOFF TIER RED — "* | "1:HANDOFF TIER EMPTY — "*)
+    if [ -f "$RUN_DIR/record.json" ]; then printf '%s\n' "$summary"; exit "$fin_rc"; fi ;;
 esac
+# Untrusted: show what it printed, but never a second banner.
+[ -z "$summary" ] || printf '%s\n' "$summary" | grep -v '^HANDOFF TIER' || true
+echo "HANDOFF TIER RED — recorder failed (finalize exit ${fin_rc})"
+exit 1

@@ -455,12 +455,20 @@ class Counts(NamedTuple):
 
 
 def junit_counts(directory: Path) -> Counts:
-    passed = failed = skipped = files = 0
+    passed = failed = skipped = files = unreadable = 0
     failing: List[str] = []
     durations: List[Tuple[str, float, str]] = []
     for xml in sorted(directory.rglob("*.xml")) if directory.is_dir() else []:
         files += 1
-        for case in ET.parse(str(xml)).getroot().iter("testcase"):
+        try:
+            root = ET.parse(str(xml)).getroot()
+        except (ET.ParseError, OSError) as exc:
+            # A runner killed mid-write leaves a report nobody can count: a
+            # failure every tier sees, never a crash and never a silent skip.
+            unreadable += 1
+            failing.append("unreadable JUnit report %s (%s)" % (xml.relative_to(directory), exc))
+            continue
+        for case in root.iter("testcase"):
             cls = case.get("classname", "")
             tid = "%s::%s" % (cls, case.get("name", ""))
             if case.find("failure") is not None or case.find("error") is not None:
@@ -475,7 +483,9 @@ def junit_counts(directory: Path) -> Counts:
             except ValueError:
                 secs = 0.0
             durations.append((tid, secs, case.get("file") or cls.replace(".", "/")))
-    return Counts(passed, failed, skipped, passed + failed + skipped, files, failing, durations)
+    # An unreadable report is a failure, but not a test: it never adds to `reported`.
+    return Counts(passed, failed + unreadable, skipped, passed + failed + skipped, files,
+                  failing, durations)
 
 
 def _parse_count(path: Path) -> Optional[int]:
