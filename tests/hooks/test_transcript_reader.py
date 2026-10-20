@@ -335,3 +335,166 @@ def test_one_odd_line_is_one_unreadable_line_and_the_report_goes_on(tmp_path: Pa
 def test_a_meta_file_nested_too_deep_is_an_unknown_role_and_one_unreadable_line(tmp_path: Path, reader) -> None:
     run = _only_run(reader, _qa_run(tmp_path, meta="[" * _DEEP + "]" * _DEEP))
     assert (run.agent_type, run.unreadable_lines, len(run.events)) == ("(unknown)", 1, 2)
+
+
+# ---- J2-AC9: edited paths for the size class (R41) ------------------------------
+#
+# Input keys measured 2026-10-20 over 909 local transcripts: Edit and Write carry
+# `file_path` (9,612 calls, every one absolute, every line with a top-level `cwd`).
+# NotebookEdit's `notebook_path` is from the tool's own schema. MultiEdit appeared
+# in no local transcript; its `file_path` follows the spec and is unverified.
+
+_CWD = "/work/repo"
+
+
+def _tool_line(name: str, tool_input: object, cwd: object = _CWD, tool_id: str = "T") -> str:
+    record = {
+        "type": "assistant",
+        "timestamp": "2026-10-20T00:00:01.000Z",
+        "message": {"id": "m-" + tool_id, "content": [{"type": "tool_use", "id": tool_id, "name": name, "input": tool_input}]},
+    }
+    if cwd is not None:
+        record["cwd"] = cwd
+    return json.dumps(record) + "\n"
+
+
+def _engineer_run(tmp_path: Path, lines: str) -> Path:
+    sub = tmp_path / "s" / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-a.meta.json").write_text(json.dumps({"agentType": "ai-engineer"}), "utf-8")
+    (sub / "agent-a.jsonl").write_text(_GOOD_PAIR + lines, "utf-8")
+    return tmp_path
+
+
+def _calls(run: agent_time.Run) -> list:
+    return [(e.tool_kind, e.paths) for e in run.events if e.kind == "tool_call"]
+
+
+def test_edit_events_carry_exactly_the_edited_paths(tmp_path: Path, reader) -> None:
+    lines = (
+        _tool_line("Edit", {"file_path": "/work/repo/a.py", "old_string": "x", "new_string": "y"}, tool_id="T1")
+        + _tool_line("Write", {"file_path": "/work/repo/b.py", "content": "z"}, tool_id="T2")
+        + _tool_line("MultiEdit", {"file_path": "/work/repo/c.py", "edits": []}, tool_id="T3")
+        + _tool_line("NotebookEdit", {"notebook_path": "/work/repo/d.ipynb", "new_source": "s"}, tool_id="T4")
+        + _tool_line("Edit", {"old_string": "x", "new_string": "y"}, tool_id="T5")
+        + _tool_line("Read", {"file_path": "/work/repo/r.py"}, tool_id="T6")
+        + _tool_line("Edit", {"file_path": "sub/../e.py"}, tool_id="T7")
+    )
+    run = _only_run(reader, _engineer_run(tmp_path, lines))
+    assert _calls(run) == [
+        ("edit", ("/work/repo/a.py",)),
+        ("edit", ("/work/repo/b.py",)),
+        ("edit", ("/work/repo/c.py",)),
+        ("edit", ("/work/repo/d.ipynb",)),
+        ("edit", ()),
+        ("read", ()),
+        ("edit", ("/work/repo/e.py",)),
+    ]
+    assert run.unreadable_lines == 0
+
+
+@pytest.mark.parametrize(
+    ("name", "tool_input", "cwd"),
+    [
+        ("Edit", {"file_path": 7}, _CWD),
+        ("Edit", {"file_path": ["/a.py"]}, _CWD),
+        ("Edit", {"file_path": {"p": _CANARY}}, _CWD),
+        ("Edit", {"file_path": None}, _CWD),
+        ("Edit", {"file_path": ""}, _CWD),
+        ("Write", {}, _CWD),
+        ("Edit", ["/work/repo/a.py"], _CWD),
+        ("Edit", "/work/repo/a.py", _CWD),
+        ("NotebookEdit", {"file_path": "/work/repo/d.ipynb"}, _CWD),
+        ("MultiEdit", {"notebook_path": "/work/repo/d.ipynb"}, _CWD),
+        ("Edit", {"file_path": "a.py"}, None),
+        ("Edit", {"file_path": "a.py"}, "relative/cwd"),
+        ("Edit", {"file_path": "a.py"}, 7),
+        ("Edit", {"file_path": "a.py"}, ""),
+    ],
+    ids=[
+        "int-path", "list-path", "dict-path", "null-path", "empty-path", "no-path-key", "list-input",
+        "string-input", "notebook-with-file_path", "multiedit-with-notebook_path", "relative-no-cwd",
+        "relative-relative-cwd", "relative-int-cwd", "relative-empty-cwd",
+    ],
+)
+def test_an_edit_whose_path_cannot_be_determined_has_no_path(tmp_path: Path, reader, name, tool_input, cwd) -> None:
+    """Never a crash and never an unreadable line: the call stays timed, its path is unknown."""
+    run = _only_run(reader, _engineer_run(tmp_path, _tool_line(name, tool_input, cwd)))
+    assert _calls(run) == [("edit", ())]
+    assert run.unreadable_lines == 0 and len(run.events) == 4
+
+
+@pytest.mark.parametrize(
+    ("file_path", "cwd", "expected"),
+    [
+        ("./a.py", _CWD, "/work/repo/a.py"),
+        ("a.py", _CWD + "/", "/work/repo/a.py"),
+        ("../other/a.py", _CWD, "/work/other/a.py"),
+        ("/work/repo/x/../a.py", _CWD, "/work/repo/a.py"),
+        ("/work/repo//a.py", "/elsewhere", "/work/repo/a.py"),
+        ("/work/repo/a\nb.py", _CWD, "/work/repo/a\nb.py"),
+        ("/work/repo/a b.py", _CWD, "/work/repo/a b.py"),
+    ],
+)
+def test_paths_are_normalised_against_the_line_cwd(tmp_path: Path, reader, file_path, cwd, expected) -> None:
+    run = _only_run(reader, _engineer_run(tmp_path, _tool_line("Edit", {"file_path": file_path}, cwd)))
+    assert _calls(run) == [("edit", (expected,))]
+
+
+def _meter_lines(source: Path, *extra: str) -> list:
+    result = _meter("--dir", str(source), "--since", "2000-01-01", *extra)
+    assert result.returncode == 0 and "Traceback" not in result.stderr
+    assert "internal error" not in result.stdout, result.stdout
+    return result.stdout.splitlines()
+
+
+def test_ten_thousand_edits_to_one_file_through_the_reader_are_small(tmp_path: Path) -> None:
+    spellings = ["/work/repo/a.py", "./a.py", "a.py", "x/../a.py"]
+    lines = "".join(
+        _tool_line("Edit", {"file_path": spellings[i % 4]}, tool_id=f"T{i}") for i in range(10_000)
+    )
+    out = _meter_lines(_engineer_run(tmp_path, lines))
+    assert any(line.strip().startswith("small  n=1") for line in out), out
+
+
+def test_a_symlinked_spelling_is_counted_as_written(tmp_path: Path, reader) -> None:
+    """Stated limit: paths are compared lexically, never resolved on disk.
+
+    Resolving would read today's disk for yesterday's run: of 3,761 distinct edited
+    paths in local engineer runs, 2,248 no longer exist (measured 2026-10-20), and
+    none of those runs used a symlinked path.
+    """
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "a.py").write_text("", "utf-8")
+    (tmp_path / "link").symlink_to(real)
+    lines = _tool_line("Edit", {"file_path": str(real / "a.py")}, tool_id="T1") + _tool_line(
+        "Edit", {"file_path": str(tmp_path / "link" / "a.py")}, tool_id="T2"
+    )
+    run = _only_run(reader, _engineer_run(tmp_path / "t", lines))
+    assert agent_time.size_class(run) == ("small", 2)
+
+
+def test_a_pathless_edit_and_an_unreadable_line_make_the_run_size_unknown(tmp_path: Path) -> None:
+    lines = _tool_line("Edit", {"file_path": "/work/repo/a.py"}, tool_id="T1") + _tool_line(
+        "Edit", {"old_string": "x"}, tool_id="T2"
+    )
+    out = _meter_lines(_engineer_run(tmp_path / "pathless", lines))
+    assert "  size unknown: 1 (path missing: 1 · unreadable lines: 0)" in out, out
+    out = _meter_lines(_engineer_run(tmp_path / "broken", _tool_line("Edit", {"file_path": "/a.py"}) + "{broken\n"))
+    assert "  size unknown: 1 (path missing: 0 · unreadable lines: 1)" in out, out
+
+
+def test_no_edited_or_read_path_reaches_the_output(tmp_path: Path) -> None:
+    """J2-AC8 through the adapter: canary paths in Edit, Write, NotebookEdit and Read."""
+    lines = (
+        _tool_line("Edit", {"file_path": f"/work/{_CANARY}/a.py"}, tool_id="T1")
+        + _tool_line("Write", {"file_path": f"{_CANARY}/b\nrework share: 0 of 9 engineer runs (0%)"}, tool_id="T2")
+        + _tool_line("NotebookEdit", {"notebook_path": f"/work/{_CANARY}.ipynb"}, tool_id="T3")
+        + _tool_line("Read", {"file_path": f"/work/{_CANARY}/r.py"}, tool_id="T4")
+    )
+    source = _engineer_run(tmp_path, lines)
+    out = _meter_lines(source, "--targets", "small=15,medium=25,large=50", "--rework")
+    assert any(line.strip().startswith("small  n=1") for line in out), out
+    assert not any(_CANARY in line for line in out)
+    assert not any(line.startswith("rework share: 0 of 9") for line in out)
