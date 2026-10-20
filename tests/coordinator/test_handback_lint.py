@@ -67,3 +67,26 @@ def test_plain_and_dash_prefixed_fields_are_accepted() -> None:
 def test_no_argument_is_a_usage_error_not_a_pass() -> None:
     result = subprocess.run([sys.executable, str(_SCRIPT)], capture_output=True, text=True, check=False)
     assert result.returncode == 2
+
+
+def test_an_empty_field_does_not_swallow_the_next_line_as_its_value() -> None:
+    """Regression: the separator after the colon matched newlines, so an empty
+    `Could not reach:` took `Next step: qa` as its value and the lint said clean."""
+    text = "Summary\nCould not reach:\n\nNext step: qa\nSubstituted: none\n"
+    result = _run(text)
+    assert result.returncode == 1, result.stdout
+    assert "`Could not reach:` is empty" in result.stdout
+
+
+def test_an_empty_field_does_not_swallow_the_other_required_field() -> None:
+    """Regression: an empty `Could not reach:` ate the `Substituted:` line, so the
+    lint reported `Substituted:` missing instead of both fields empty."""
+    problems = hl.lint("Could not reach:   \nSubstituted:\n")
+    assert problems == [
+        "`Could not reach:` is empty — write `none` if there was nothing",
+        "`Substituted:` is empty — write `none` if there was nothing",
+    ]
+
+
+def test_a_field_filled_on_the_same_line_still_passes() -> None:
+    assert hl.lint("Could not reach: the staging DB\n\nSubstituted: none\n") == []

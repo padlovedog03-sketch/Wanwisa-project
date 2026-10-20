@@ -33,8 +33,10 @@ from pathlib import Path
 REQUIRED_FIELDS = ("Could not reach", "Substituted")
 
 #: A field line may sit in a list ("- ", "5. ") and may be bolded.
+#: Separators are `[ \t]*`, not `\s*`: `\s` matches newlines, which let an empty
+#: field swallow the next line as its value.
 _FIELD_RE = re.compile(
-    r"^\s*(?:[-*]|\d+\.)?\s*\**(" + "|".join(REQUIRED_FIELDS) + r")\**\s*:\s*\**\s*(.*?)\s*$",
+    r"^[ \t]*(?:[-*]|\d+\.)?[ \t]*\**(" + "|".join(REQUIRED_FIELDS) + r")\**[ \t]*:[ \t]*\**[ \t]*(.*?)[ \t]*$",
     re.MULTILINE,
 )
 
