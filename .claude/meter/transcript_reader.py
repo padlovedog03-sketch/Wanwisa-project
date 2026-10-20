@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -52,6 +53,11 @@ TOOL_KINDS = {
     "NotebookEdit": "edit",
     "Monitor": "wait",
 }
+
+#: Edit tool → the input key holding the file it edits (R41, the size class). Edit and
+#: Write measured on 9,612 local calls (2026-10-20); NotebookEdit from the tool's own
+#: schema; MultiEdit appeared in no local transcript, so its key is unverified.
+EDIT_PATH_KEYS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 
 #: A background launch's acknowledgement in its tool result. `\w+` stops at the
 #: trailing full stop the real text carries (measured on local transcripts).
@@ -106,7 +112,25 @@ def _text(content: object) -> str:
     return "\n".join(parts)
 
 
-def _events_of(kind: str, t: dt.datetime, message: dict) -> list:
+def _edited_paths(name: str, tool_input: dict, cwd: object) -> tuple:
+    """The edited path of an edit tool call, normalised; () when it cannot be determined (R41).
+
+    A relative path is resolved against the line's `cwd`, and only when that is
+    absolute. Lexical only (`os.path.normpath`): the disk is never read, because
+    a run's files are often gone by the time the meter runs. Never raises, so an
+    odd path cannot make the whole line unreadable and move the timing.
+    """
+    path = tool_input.get(EDIT_PATH_KEYS[name])
+    if not isinstance(path, str) or not path:
+        return ()
+    if not os.path.isabs(path):
+        if not isinstance(cwd, str) or not os.path.isabs(cwd):
+            return ()
+        path = os.path.join(cwd, path)
+    return (os.path.normpath(path),)
+
+
+def _events_of(kind: str, t: dt.datetime, message: dict, cwd: object = None) -> list:
     """Neutral events for one clock line (design §J.3, mapping table)."""
     content = message.get("content")
     if kind == "assistant":
@@ -125,6 +149,7 @@ def _events_of(kind: str, t: dt.datetime, message: dict) -> list:
                     tool_kind=TOOL_KINDS.get(name, "other"),
                     command=command if name == "Bash" and isinstance(command, str) else None,
                     background=tool_input.get("run_in_background") is True,
+                    paths=_edited_paths(name, tool_input, cwd) if name in EDIT_PATH_KEYS else (),
                 )
             )
         return events
@@ -179,7 +204,7 @@ def _read_run(path: Path, agent_type: str, unreadable: int = 0) -> Run:
             continue
         message = record.get("message") if isinstance(record.get("message"), dict) else {}
         try:
-            events.extend(_events_of(kind, t, message))
+            events.extend(_events_of(kind, t, message, record.get("cwd")))
         except _BAD_LINE:
             unreadable += 1
     events.sort(key=lambda e: e.t)  # stable: a tool call keeps its place after its model event

@@ -46,6 +46,8 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import importlib.util
+import math
+import os
 import re
 import statistics
 import sys
@@ -85,6 +87,33 @@ READ_SHELL_RE = re.compile(r"^\s*(grep|rg|cat|sed -n|head|tail|ls|find|wc|git)\b
 
 DEFAULT_SINCE = "1970-01-01"
 
+#: Size classes by distinct files edited in a run (R41). Bounds are inclusive; None = no upper bound.
+SIZE_CLASSES = (("investigate-only", 0, 0), ("small", 1, 5), ("medium", 6, 10), ("large", 11, None))
+
+#: The classes trial acceptance judges (R22, M10); investigate-only is reported, not judged.
+JUDGED_CLASSES = ("small", "medium", "large")
+
+#: The tool kinds whose paths count toward the size class. The J2-AC2 mutation widens it.
+SIZE_TOOL_KINDS = frozenset({"edit"})
+
+UNKNOWN_SIZE = "size unknown"
+
+#: A trial probe's brief carries a line starting `PROBE:` (R23, AM1-ADR-3).
+PROBE_RE = re.compile(r"^PROBE:", re.M)
+
+#: A shell command that writes a file: `sed -i`, `git apply`, or an output redirection
+#: that is not to /dev/null or another descriptor (`2>&1`), and not an arrow or a
+#: comparison (`->`, `=>`, `>=`). By pattern, for a visible count only: such files are
+#: not in the size class.
+SHELL_WRITE_RE = re.compile(r"\bsed\s+(-\w*\s+)*-i|\bgit\s+apply\b|(?<![0-9&>=-])>>?(?![>=])(?!\s*(&|/dev/null\b))")
+
+SIZE_LIMITS = (
+    "size limits: a run's size is its distinct edited paths, compared as written after "
+    "normalising . and .. (a symlink or a case variant of one file counts twice); files written "
+    "by shell commands are not counted; an edit call that failed still counts its file; a run "
+    "with any pathless edit or unreadable line is size unknown"
+)
+
 #: What a role or excluded type that is not a printable single-line label is
 #: reported as (R39). A reader's labels come from transcript data; a line break in
 #: one would write its own report lines, so the core checks them too.
@@ -118,6 +147,7 @@ class Event:
     background: bool = False
     job_ids: tuple = ()
     text: Optional[str] = None
+    paths: tuple = ()  # edit calls only: normalised paths, counted, never printed; () = unknown
 
 
 @dataclass(frozen=True)
@@ -137,6 +167,52 @@ def count_turns(events: Iterable[Event]) -> int:
     turns about threefold on this repo's own transcripts.
     """
     return len({e.message_id for e in events if e.kind == "model"})
+
+
+def _counted_paths(event: Event) -> Optional[list]:
+    """The event's paths as normalised strings, or None when any is missing or not a path."""
+    paths = event.paths
+    if not isinstance(paths, (tuple, list)) or not paths:
+        return None
+    if not all(isinstance(p, str) and p for p in paths):
+        return None
+    return [os.path.normpath(p) for p in paths]
+
+
+def count_edited_files(events: Iterable[Event]) -> Optional[int]:
+    """Distinct normalised paths over the counted calls; None if any counted call has no usable path.
+
+    Distinct, not per call: re-editing one file is still one file (J2-AC2).
+    """
+    seen: set = set()
+    for e in events:
+        if e.kind == "tool_call" and e.tool_kind in SIZE_TOOL_KINDS:
+            paths = _counted_paths(e)
+            if paths is None:
+                return None
+            seen.update(paths)
+    return len(seen)
+
+
+def size_class(run: Run) -> tuple:
+    """(class name, distinct files edited), or (`size unknown`, None) when it cannot be determined.
+
+    An unreadable line may have hidden an edit, so it makes the run unknown (AM1-ADR-2).
+    """
+    if run.unreadable_lines:
+        return UNKNOWN_SIZE, None
+    n = count_edited_files(run.events)
+    if n is None:
+        return UNKNOWN_SIZE, None
+    for name, low, high in SIZE_CLASSES:
+        if n >= low and (high is None or n <= high):
+            return name, n
+
+
+def is_probe(run: Run) -> bool:
+    """A trial probe: the run's first inbound message has a line starting `PROBE:` (R23)."""
+    text = _first_inbound_text(run)
+    return isinstance(text, str) and bool(PROBE_RE.search(text))
 
 
 def _category_of(call: Optional[Event], test_re: Pattern) -> str:
@@ -314,6 +390,124 @@ def _first_inbound_text(run: Run) -> str:
     return next((e.text or "" for e in run.events if e.kind == "inbound"), "")
 
 
+def _verdict(name: str, medians: list, targets: dict, min_runs: int) -> tuple:
+    """(suffix for the class line, met?) for one class under `--targets` (R22, J2-AC6).
+
+    The median is compared as printed (one decimal), so the verdict never
+    contradicts the number beside it.
+    """
+    if name not in targets:
+        return " · report only", False
+    if len(medians) < min_runs:
+        return f" · not enough runs ({len(medians)}) — extend the trial for this class; not met", False
+    median = round(statistics.median(medians) / 60, 1)
+    target = targets[name]
+    if median <= target:
+        return f" · met (median {median:.1f} ≤ {target:g})", True
+    return f" · NOT met (median {median:.1f} > {target:g})", False
+
+
+def _size_block(agent_type: str, runs: list, targets: Optional[dict], min_runs: int) -> list:
+    """The size-class lines for one engineer type (R41, M10, M10a)."""
+    active = {id(r): categorise(r)["active"] for r in runs}
+    by_class: dict = defaultdict(list)
+    path_missing = unreadable = 0
+    for r in runs:
+        name, _ = size_class(r)
+        if name == UNKNOWN_SIZE:
+            # Exactly one reason per run, so the two reasons add up to the unknown count.
+            if count_edited_files(r.events) is None:
+                path_missing += 1
+            else:
+                unreadable += 1
+        by_class[name].append(active[id(r)])
+    lines = [f"{agent_type} — size classes (distinct files edited per run):"]
+    met = 0
+    for name, _, _ in SIZE_CLASSES:
+        medians = by_class[name]
+        line = f"  {name:<6} n={len(medians)}  " + (
+            f"median {_minutes(statistics.median(medians))}" if medians else "no median"
+        )
+        if targets is not None:
+            suffix, ok = _verdict(name, medians, targets, min_runs)
+            line += suffix
+            met += ok
+        lines.append(line)
+    unknown = len(by_class[UNKNOWN_SIZE])
+    lines.append(f"  {UNKNOWN_SIZE} n={unknown}")
+    lines.append(f"  {UNKNOWN_SIZE}: {unknown} (path missing: {path_missing} · unreadable lines: {unreadable})")
+    values = list(active.values())
+    lines.append(
+        f"  all engineer runs n={len(values)}  mean {_minutes(sum(values) / len(values))}"
+        f" · median {_minutes(statistics.median(values))}"
+    )
+    if targets is not None:
+        verdict = "met" if met == len(JUDGED_CLASSES) else "NOT met"
+        lines.append(f"  acceptance: {verdict} (met {met} of {len(JUDGED_CLASSES)} classes)")
+    return lines
+
+
+def size_report(runs: list, targets: Optional[dict] = None, min_runs: int = 3, include_probes: bool = False) -> str:
+    """Per engineer type: runs per size class with medians, size unknown, overall mean and median,
+    and with `targets` the per-class acceptance (R41, R22, R23). Paths are never printed (R39)."""
+    engineer = [r for r in runs if r.events and r.agent_type in ENGINEER_TYPES]
+    probes = [r for r in engineer if is_probe(r)]
+    if include_probes:
+        lines = [f"probe runs included (--include-probes, debugging only): {len(probes)}"]
+    else:
+        lines = [f"probe runs excluded: {len(probes)}"]
+        engineer = [r for r in engineer if not is_probe(r)]
+    if not engineer:
+        return "\n".join(["size classes: no engineer runs in the window", *lines])
+    shell_writes = sum(
+        1
+        for r in engineer
+        if any(
+            e.kind == "tool_call" and e.tool_kind == "shell" and isinstance(e.command, str)
+            and SHELL_WRITE_RE.search(e.command)
+            for e in r.events
+        )
+    )
+    lines.append(f"runs with shell file writes (not counted in size): {shell_writes}")
+    by_type: dict = defaultdict(list)
+    for r in engineer:
+        by_type[r.agent_type].append(r)
+    for agent_type in sorted(by_type):
+        lines.extend(_size_block(agent_type, by_type[agent_type], targets, min_runs))
+    lines.append(SIZE_LIMITS)
+    return "\n".join(lines)
+
+
+def _targets(text: str) -> dict:
+    """`small=15,medium=25,large=50`: a positive finite number of minutes for each judged class."""
+    targets: dict = {}
+    for part in text.split(","):
+        name, sep, value = part.partition("=")
+        name = name.strip()
+        try:
+            minutes = float(value)
+        except ValueError:
+            minutes = math.nan
+        if not sep or name not in JUDGED_CLASSES or name in targets or not (math.isfinite(minutes) and minutes > 0):
+            raise argparse.ArgumentTypeError(
+                "expected small=<min>,medium=<min>,large=<min>, each a positive number, each once"
+            )
+        targets[name] = minutes
+    if set(targets) != set(JUDGED_CLASSES):
+        raise argparse.ArgumentTypeError("expected a target for each of small, medium and large")
+    return targets
+
+
+def _min_runs(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise argparse.ArgumentTypeError("expected a whole number of runs, 1 or more")
+    return value
+
+
 def _qa_causes(qa_dir: Path, since: dt.datetime) -> tuple:
     """(valid causes, unclassified defects, reports with no Date:, FAIL reports with no Defects table).
 
@@ -410,6 +604,9 @@ def _run(argv: list) -> int:
     parser.add_argument("--rework", action="store_true", help="add the rework share and causes")
     parser.add_argument("--qa-dir", type=Path, help="QA reports for rework causes (e.g. doc/qa)")
     parser.add_argument("--test-pattern", type=_test_pattern, help="extra regex for this project's test commands")
+    parser.add_argument("--targets", type=_targets, help="judge size classes: small=15,medium=25,large=50 (minutes)")
+    parser.add_argument("--min-runs", type=_min_runs, default=3, help="runs a class needs to be judged (default 3)")
+    parser.add_argument("--include-probes", action="store_true", help="count PROBE: runs too (debugging only)")
     args = parser.parse_args(argv)
 
     reader = load_reader(args.reader) if args.reader else None
@@ -425,6 +622,8 @@ def _run(argv: list) -> int:
     test_re = args.test_pattern or TEST_RE
     runs = list(reader.runs(args.dir, args.since))
     print(report(runs, args.since, args.reader.name, test_re))
+    if any(r.events for r in runs):
+        print(size_report(runs, args.targets, args.min_runs, args.include_probes))
     if args.rework:
         print(rework_report(runs, args.qa_dir, args.since))
     return 0
