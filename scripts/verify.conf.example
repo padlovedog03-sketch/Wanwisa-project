@@ -62,6 +62,53 @@
 #
 # VERIFY_COLLECT_CMD='python3 -m pytest --collect-only -q | tail -1'
 
+# ---- the handoff tier (scripts/verify-handoff.sh) — opt-in -------------------------
+# With VERIFY_HANDOFF_TIER=on (exactly that word), scripts/verify-handoff.sh runs
+# the tests a machine selects from the diff instead of the whole suite, and says
+# "ran N of M". Anything else, or no conf: it prints HANDOFF TIER NOT CONFIGURED,
+# exits 3, and scripts/verify-full.sh before every handoff stays in force.
+# `scripts/verify-handoff.sh --status` prints "opted in" or "not opted in".
+# Opted in, the tier also needs VERIFY_SELECT_CMD, VERIFY_FULL_TEST_CMD and
+# VERIFY_COLLECT_CMD (above), or it is NOT CONFIGURED; and it is never GREEN.
+#
+# VERIFY_HANDOFF_TIER=on
+#
+# The diff is taken against the merge base of this ref and HEAD, plus staged,
+# unstaged and untracked (not ignored) files. A ref that does not resolve, or
+# that shares no history with HEAD, runs the full set and says so. Default:
+#
+# VERIFY_BASE_REF=origin/main
+#
+# Your selector. It gets the selected paths as separate arguments after the
+# command, runs the tests related to them, and writes JUnit XML into
+# $VERIFY_JUNIT_DIR (single quotes, as for STEPS). The paths are the diff plus any
+# you name, relative to the project root; they can include DELETED files, so the
+# selector must accept a path that no longer exists. A path starting with `-`
+# arrives as `./-…`. With an empty selection the selector is never called (the
+# full set runs instead), because a test runner given no paths runs everything.
+# The selector's own correctness is yours; the tier guarantees its input is
+# never narrower than the diff, that 0 tests is a failure, and that the label is
+# honest. Its pytest arguments are checked against the bans below. For example,
+# pytest's own collection filtered by the changed paths:
+#
+# VERIFY_SELECT_CMD='python3 scripts/pick_tests.py'
+#
+# The full collected set, writing JUnit XML; run when the selection cannot be
+# trusted (see below). It must report as many tests as VERIFY_COLLECT_CMD counts.
+#
+# VERIFY_FULL_TEST_CMD='python3 -m pytest -q --junitxml="$VERIFY_JUNIT_DIR/full.xml"'
+#
+# Space-separated globs for inputs your selector cannot trace to tests (data
+# files, config, docs that tests read). A change to any of them runs the full
+# set. EMPTY MEANS THE FULL SET EVERY TIME: until you declare these, the tier
+# never selects. `*` crosses `/`, `**/x` also matches a top-level x, and a plain
+# directory (`doc` or `doc/`) covers everything under it.
+#
+# VERIFY_UNTRACKED_INPUTS='*.md *.toml *.json config/**'
+#
+# Do not name your selector after a Python module (scripts/select.py would shadow
+# the stdlib `select` for your own script); the recorder itself runs isolated.
+
 # ---- bans and the declared filter allow-list --------------------------------------
 # The built-in bans are pytest's. They are refused (exit 2, before any step runs)
 # in the arguments of pytest in every configured command and in

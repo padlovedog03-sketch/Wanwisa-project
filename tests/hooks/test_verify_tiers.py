@@ -1033,9 +1033,15 @@ def test_d9_without_a_collect_command_the_fast_tier_says_ran_n_of_unknown(tmp_pa
 def test_d10_a_crashed_recorder_never_prints_a_record_path_that_was_not_written(
     tmp_path: Path,
 ) -> None:
-    probe = _full(tmp_path, _conf(["tests|bash scripts/bad_junit.sh"]))
-    (tmp_path / "scripts" / "bad_junit.sh").write_text(
-        'printf "<testsuite><testcase" > "$VERIFY_JUNIT_DIR/bad.xml"\n', encoding="utf-8")
+    # A broken JUnit file no longer crashes the recorder (it is RED with a record),
+    # so the crash is planted in the copied recorder itself.
+    probe = _full(tmp_path, _conf(["tests|python3 scripts/stub_junit.py 1 0 0"]))
+    recorder = tmp_path / "scripts" / "verify_record.py"
+    body = recorder.read_text(encoding="utf-8")
+    anchor = "def cmd_finalize(args: argparse.Namespace) -> int:\n"
+    assert body.count(anchor) == 1
+    recorder.write_text(body.replace(anchor, anchor + "    raise RuntimeError('planted crash')\n"),
+                        encoding="utf-8")
 
     result = _run(probe)
 
