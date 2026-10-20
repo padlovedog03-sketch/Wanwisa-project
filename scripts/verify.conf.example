@@ -1,0 +1,156 @@
+# scripts/verify.conf — this project's values for the verify tiers.
+#
+# Copy this file to scripts/verify.conf and fill in what applies. Every tier
+# sources it (it is bash), so a framework upgrade never needs an edit to
+# verify-full.sh or verify-fast.sh. Without the file, the tiers behave exactly as
+# before, plus timing, a run record and informational lines.
+#
+# Having the file at all switches ON one check: the working tree must not change
+# while verify-full.sh runs (a step that edits a tracked file, or leaves a new
+# file that is not git-ignored, turns the gate RED). So git-ignore every artifact
+# your tests write before you copy this file. Run records go to .verify/, which
+# the recorder always leaves out of the tree hash.
+#
+# LOADING. Both tiers check this file with `bash -n` first. A syntax error stops
+# them before any step runs: verify-full.sh is RED, verify-fast.sh exits 2. Bash
+# keeps whatever it read before the error, so carrying on would silently drop the
+# rest of your settings. A last line that returns non-zero, such as
+# `[ -n "$X" ] && VAR=…`, is not an error. LIMIT: a conf that reads an unset
+# variable (`$CI_NAME` with no default) ends the tier with bash's own message.
+#
+# QUOTING. Commands that must see $VERIFY_JUNIT_DIR are run with `eval`, once per
+# step, so write them in SINGLE quotes: the variable then expands when the step
+# runs, inside that step's fresh directory. In double quotes it would expand now,
+# while it is still unset.
+
+# ---- the steps ----------------------------------------------------------------
+# STEPS replaces the list in verify-full.sh. Keep the framework's own steps
+# (hooks, ci-examples, scar-forge, coordinator, framework) unless you know why not.
+# An empty STEPS is RED ("no steps configured"), and two steps listed in
+# VERIFY_TEST_STEPS may not share a label.
+#
+# STEPS=(
+#   'lint|<your lint command>'
+#   'format|<your format --check command>'
+#   'tests|<your full test command, writing JUnit XML into $VERIFY_JUNIT_DIR>'
+#   'hooks|python3 -m pytest tests/hooks/ -q'
+#   'ci-examples|python3 -m pytest tests/ci/ -q'
+#   'scar-forge|python3 -m pytest tests/scars/ -q && python3 scripts/scar_status.py'
+#   'coordinator|python3 -m pytest tests/coordinator/ -q'
+#   'framework|python3 -m pytest tests/framework/ -q && python3 scripts/check_neutrality.py && python3 scripts/memory_lint.py'
+# )
+#
+# LINT and TEST replace the fast tier's commands. They are arrays, expanded when
+# this file is sourced (VERIFY_JUNIT_DIR is already set by then), and the paths
+# you pass to verify-fast.sh are appended to both.
+#
+# LINT=(<your lint command>)
+# TEST=(<your test command> --junitxml="$VERIFY_JUNIT_DIR/fast.xml")
+
+# ---- counts: executed == collected ----------------------------------------------
+# Labels of the steps that run tests, space-separated. Each one must write JUnit
+# XML into $VERIFY_JUNIT_DIR. A listed step that writes no report, or a report
+# with 0 test cases, is RED. Empty means no JUnit, zero-case or count checks.
+#
+# VERIFY_TEST_STEPS="tests"
+#
+# Prints the number of tests the full run should report (the last line's first
+# integer is read). If the reported total differs, the gate is RED with
+# "reported N of M collected". Unset: the gate says
+# "counts: not configured — executed == collected NOT checked".
+# For a pytest stack, for example:
+#
+# VERIFY_COLLECT_CMD='python3 -m pytest --collect-only -q | tail -1'
+
+# ---- bans and the declared filter allow-list --------------------------------------
+# The built-in bans are pytest's. They are refused (exit 2, before any step runs)
+# in the arguments of pytest in every configured command and in
+# VERIFY_COLLECT_CMD, in every argument passed to verify-fast.sh, and in
+# PYTEST_ADDOPTS (set in a command or in the environment), because each can
+# report success while executing nothing:
+#   --lf* --last-failed* --ff* --failed-first* --sw* --stepwise*   (so --sw-skip,
+#   --sw-reset, --lfnf too)   -x --exitfirst --maxfail[=n] --bail[=n]
+#   --reruns* --retries --retry --flake-finder --cache_test_results* --cache-test-results*
+#   -k / -m / --deselect / --ignore / --ignore-glob   (filters)
+# Clustered and attached forms count too: -xq, -qk smoke, -mslow, -m"not slow".
+# --cache-clear is allowed.
+#
+# pytest is found where a command runs it: `pytest`, `py.test`, `.venv/bin/pytest`,
+# and behind `env`, `uv run`, `coverage run` and `python3 -m pytest` / `-mpytest`.
+# A word that is only an argument (`make -C tools/pytest`, `echo pytest -x`) is not.
+# Other programs are never scanned: `git commit -m`, `tar -x`, `go test -timeout`.
+#
+# Any OTHER test runner is not flag-scanned: the gate does not guess its flags.
+# List the ones you use here, and each step that runs one prints
+#   limit: step <label> runs <runner>; its flags are not scanned — declare bans in VERIFY_EXTRA_BANNED
+# A step listed in VERIFY_TEST_STEPS that runs no pytest prints the same line with
+# "no known runner". The line is also kept in the record's warnings; the verdict
+# does not change. The pytest family is always scanned, listed or not.
+#
+# VERIFY_TEST_RUNNERS=(pytest py.test)
+# VERIFY_TEST_RUNNERS=(pytest py.test jest "go test" "cargo nextest" "bazel test")
+#
+# LIMIT: flags inside `eval` or a shell's `-c` string, flags held in a variable
+# (`pytest $FLAGS`), and pytest behind any other wrapper (`timeout 600 pytest`,
+# `poetry run pytest`, `npx`, `tox`) are not seen. eval and -c print a `limit:`
+# line; another wrapper prints one only in a step listed in VERIFY_TEST_STEPS.
+# Unknown interpreters (`pypy3 -m pytest`, `py -m pytest`) and a renamed copy or
+# alias of pytest (`pytest3`) are treated the same way as another wrapper.
+# Arguments typed at verify-fast.sh are always checked against pytest's table,
+# whatever your runner is, so your runner's own flags pass there silently.
+# `--flake-runs` passes silently; it repeats nothing without `--flake-finder`,
+# which is banned. `--force-flaky` and `--max-runs` are always banned: a retried
+# test is still one test, so the count check cannot see a retry.
+#
+# Your runner's own bans (space-separated), refused in every program, in every
+# step. You can only add, never remove. A `--flag` also matches `--flag=value`.
+#
+# VERIFY_EXTRA_BANNED=''
+#
+# Examples (check them against your tool's docs; a short flag such as jest's -b
+# would be refused in every program too, so prefer the long form):
+# jest:           VERIFY_EXTRA_BANNED='--onlyFailures --bail --onlyChanged'
+# go:             VERIFY_EXTRA_BANNED='-failfast -run'
+# cargo nextest:  VERIFY_EXTRA_BANNED='--retries'
+# bazel:          VERIFY_EXTRA_BANNED='--cache_test_results --flaky_test_attempts'
+#
+# A marker or deselect filter that is genuinely part of how THIS project runs its
+# suite may be declared here, with the reason, as "<filter exactly as written in
+# the step command>|<reason>". Only -m, -k, --deselect, --ignore and --ignore-glob
+# can be declared, and the value must match exactly. A declared filter is printed
+# on every run and kept in the record. A declared filter must also be applied by
+# VERIFY_COLLECT_CMD, or the count check reports a mismatch. Never allowed, even
+# with a reason: --lf, --last-failed, --ff, -x, --exitfirst, --maxfail, --bail,
+# --sw/--stepwise, retries, cached results.
+# The allow-list covers your configured step commands only, never arguments typed
+# at verify-fast.sh.
+#
+# VERIFY_ALLOWED_FILTERS=(
+#   '-m "not real_sleep"|real-sleep tests run in the nightly job'
+# )
+
+# ---- time budgets: warnings only, never a verdict ----------------------------------
+# A step slower than this many seconds gets a WARN line.
+#
+# VERIFY_STEP_BUDGET_S=900
+#
+# Per-test budgets by size class, read from each JUnit case's time. A test over its
+# class budget gets a WARN line naming the step and the test; the ten slowest are
+# listed under "slowest tests:".
+#
+# VERIFY_TEST_BUDGET_SMALL_S=1
+# VERIFY_TEST_BUDGET_MEDIUM_S=10
+# VERIFY_TEST_BUDGET_LARGE_S=60
+#
+# Size rules: space-separated glob=class pairs, matched in order against each
+# test's file part (the JUnit `file` attribute, or else the classname with dots
+# turned into slashes). The first match wins; a test that matches nothing is small.
+#
+# VERIFY_TEST_SIZE_RULES='tests/integration/*=medium tests/e2e/*=large'
+
+# ---- where the run happened ---------------------------------------------------------
+# Set by a CI runner in its environment (not here). Empty: the record says
+# local:<first 12 hex of sha256(hostname)>; the hostname itself, which often
+# carries a person's name, is never recorded.
+#
+# VERIFY_RUNNER_ID

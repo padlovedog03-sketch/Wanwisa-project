@@ -77,6 +77,10 @@ _REAL_FRAMEWORK_STEP = (
     '"framework|python3 -m pytest tests/framework/ -q && python3 scripts/check_neutrality.py && python3 scripts/memory_lint.py"'
 )
 _REAL_FRAMEWORK_NESTED_SUITE = "python3 -m pytest tests/framework/ -q"
+#: The fast tier's route for a touch to the verify scripts (increment A+C).
+_REAL_VERIFY_NESTED_SUITE = (
+    "python3 -m pytest tests/hooks/test_verify_scripts.py tests/hooks/test_verify_tiers.py -q"
+)
 _PLACEHOLDER_STEPS = (
     '"lint|echo TODO: set the lint command in scripts/verify-full.sh"',
     '"format|echo TODO: set the format --check command"',
@@ -100,6 +104,11 @@ def _copy(tmp_path: Path, source: Path, *replacements: tuple[str, str]) -> Path:
     for old, new in replacements:
         assert body.count(old) == 1, f"expected exactly one {old!r}, found {body.count(old)}"
         body = body.replace(old, new, 1)
+    # The fast tier's route for the verify scripts themselves runs this file and
+    # its sibling — stubbed in every copy, or a copy given a `scripts/verify…`
+    # path would run them again from inside themselves.
+    body = body.replace(_REAL_VERIFY_NESTED_SUITE, "echo NESTED-VERIFY-SUITE-WOULD-RUN")
+    assert _REAL_VERIFY_NESTED_SUITE not in body, "copy still invokes the verify-tier suite — would recurse"
     assert _REAL_NESTED_SUITE not in body, "copy still invokes the hook suite — would recurse"
     assert _REAL_CI_NESTED_SUITE not in body, "copy still invokes the ci-examples suite — would recurse"
     assert _REAL_SCAR_NESTED_SUITE not in body, "copy still invokes the scar-forge suite — would recurse"
@@ -108,6 +117,12 @@ def _copy(tmp_path: Path, source: Path, *replacements: tuple[str, str]) -> Path:
     (tmp_path / "scripts").mkdir(exist_ok=True)
     probe = tmp_path / "scripts" / source.name
     probe.write_text(body, encoding="utf-8")
+    # Both tiers refuse to run without their recorder (a gate that silently
+    # skipped its own counting would be the failure it exists to catch).
+    recorder = _REPO_ROOT / "scripts" / "verify_record.py"
+    (tmp_path / "scripts" / recorder.name).write_text(
+        recorder.read_text(encoding="utf-8"), encoding="utf-8"
+    )
     return probe
 
 

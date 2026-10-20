@@ -12,3 +12,4 @@ dist/
 build/
 scripts/neutrality-denylist.local.txt
 .claude/worktrees/
+.verify/

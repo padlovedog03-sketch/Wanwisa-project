@@ -15,14 +15,60 @@ TEST=(echo "TODO: set TEST in scripts/verify-fast.sh — e.g. pytest -q")
 
 [ $# -eq 0 ] && { echo "usage: $0 <paths…>   (ส่ง path ที่แตะเสมอ)" >&2; exit 2; }
 
+# ---- run record, project conf, bans (increment A+C) ---------------------------
+# VERIFY_JUNIT_DIR is exported BEFORE the conf is sourced, because the conf's
+# LINT/TEST arrays expand it at assignment time.
+if [ ! -f scripts/verify_record.py ]; then
+  echo "FAST VERIFY RED — recorder missing (scripts/verify_record.py)"
+  exit 1
+fi
+RUN_DIR=".verify/runs/$(date -u +%Y%m%dT%H%M%SZ)-$$-fast"
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+mkdir -p "$RUN_DIR/junit/tests"
+export VERIFY_RUN_DIR="$RUN_DIR" VERIFY_JUNIT_DIR="$RUN_DIR/junit/tests"
+if [ -f scripts/verify.conf ]; then
+  # A syntax error drops the rest of the conf without a word: check it first
+  # (the same rule as verify-full.sh). A false last line is not a load failure,
+  # so `.` runs outside set -e.
+  if ! conf_err="$("$BASH" -n scripts/verify.conf 2>&1)"; then
+    echo "FAST VERIFY REFUSED — scripts/verify.conf failed to load (syntax error)"
+    printf '%s\n' "$conf_err"
+    exit 2
+  fi
+  set +e
+  . scripts/verify.conf
+  set -e
+fi
+allow_args=()
+for e in ${VERIFY_ALLOWED_FILTERS[@]+"${VERIFY_ALLOWED_FILTERS[@]}"}; do
+  allow_args+=("--allow=$e")
+done
+runner_args=()
+for r in ${VERIFY_TEST_RUNNERS[@]+"${VERIFY_TEST_RUNNERS[@]}"}; do
+  runner_args+=("--runner=$r")
+done
+collect_cmd_args=()
+[ -n "${VERIFY_COLLECT_CMD:-}" ] && collect_cmd_args=("--step=VERIFY_COLLECT_CMD|${VERIFY_COLLECT_CMD}")
+runtime_args=()
+for a in "$@"; do runtime_args+=("--runtime=$a"); done
+# The paths typed here are runtime arguments: the allow-list never covers them.
+python3 scripts/verify_record.py check-banned ${allow_args[@]+"${allow_args[@]}"} \
+  ${runner_args[@]+"${runner_args[@]}"} "--extra=${VERIFY_EXTRA_BANNED:-}" \
+  "--step=lint|$(printf '%q ' "${LINT[@]}")" "--step=tests|$(printf '%q ' "${TEST[@]}")" \
+  ${collect_cmd_args[@]+"${collect_cmd_args[@]}"} "${runtime_args[@]}"
+t0=$(date +%s)
+# -----------------------------------------------------------------------------
+
 # A placeholder step runs `echo`, which exits 0. Counting it as a pass and then
 # printing OK is the same false assurance verify-full.sh used to commit, one
 # tier down — and this is the tier that runs dozens of times a day.
 todo=0
 echo "== lint";  "${LINT[@]}" "$@"
 case "${LINT[0]}${LINT[1]-}" in *"TODO: set"*) todo=$((todo + 1));; esac
+t1=$(date +%s)
 echo "== tests"; "${TEST[@]}" "$@"
 case "${TEST[0]}${TEST[1]-}" in *"TODO: set"*) todo=$((todo + 1));; esac
+t2=$(date +%s)
 
 # The framework's own teeth travel with every stack. Touching a hook, an
 # approval script, the file that REGISTERS the hooks, or any of their tests
@@ -49,6 +95,15 @@ case " $* " in
   *"ci-examples"* | *"tests/ci"* | *"scripts/verify-full.sh"* | *"scripts/bootstrap.sh"*)
     echo "== ci-examples drift tests"
     python3 -m pytest tests/ci/ -q
+    ;;
+esac
+
+# The verify tiers themselves (increment A+C): a touch to either tier, the
+# recorder or the project conf re-earns the no-fake-green tests.
+case " $* " in
+  *"scripts/verify"* | *"tests/hooks/test_verify_"*)
+    echo "== verify-tier tests"
+    python3 -m pytest tests/hooks/test_verify_scripts.py tests/hooks/test_verify_tiers.py -q
     ;;
 esac
 
@@ -92,4 +147,15 @@ if [ "$todo" -ne 0 ]; then
   echo "Fill LINT and TEST in scripts/verify-fast.sh."
   exit 0
 fi
-echo "FAST VERIFY OK"
+# Never more than it ran: "ran N of M", or EMPTY (exit 1) when the tests ran zero cases.
+printf 'lint\t0\t%s\t0\t\ntests\t0\t%s\t0\t%s\n' $((t1 - t0)) $((t2 - t1)) "$VERIFY_JUNIT_DIR" \
+  >"$RUN_DIR/steps.tsv"
+collect_args=()
+if [ -n "${VERIFY_COLLECT_CMD:-}" ]; then
+  crc=0
+  eval "$VERIFY_COLLECT_CMD" >"$RUN_DIR/collect.txt" 2>"$RUN_DIR/collect.err" || crc=$?
+  collect_args=(--collect-file "$RUN_DIR/collect.txt" --collect-rc "$crc")
+fi
+exec python3 scripts/verify_record.py finalize --tier fast --run-dir "$RUN_DIR" \
+  --started-at "$STARTED_AT" ${collect_args[@]+"${collect_args[@]}"} \
+  ${allow_args[@]+"${allow_args[@]}"}

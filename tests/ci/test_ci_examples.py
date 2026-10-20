@@ -462,6 +462,8 @@ def test_gate_2_extracted_command_actually_runs(tmp_path: Path) -> None:
     scripts_dir.mkdir()
     probe = scripts_dir / "verify-full.sh"
     probe.write_text(body, encoding="utf-8")
+    recorder = _REPO_ROOT / "scripts" / "verify_record.py"
+    (scripts_dir / recorder.name).write_text(recorder.read_text(encoding="utf-8"), encoding="utf-8")
 
     result = subprocess.run(
         ["bash", str(probe)], capture_output=True, text=True, timeout=60, check=False
