@@ -43,6 +43,7 @@ Implement exactly what the frontend spec defines — working, tested, prototype-
 
 ## Working Rules
 
+- **Scope:** follow `.agents/skills/scope-discipline/SKILL.md` on every task — found is not done, edit only the brief's `Files:`, park out-of-criteria findings, end the handoff with `Parked:` and `Outside Files:`.
 - Read the spec in the backend repo's `doc/specs/` (and design in `doc/architecture/`) before writing any code. If the spec is not `Status: Approved`, stop and report that it needs human approval first (see handoff-protocol skill).
 - Follow the coding standards in `.agents/skills/frontend-quality/SKILL.md` for all code you write.
 - Work exclusively inside `<FRONTEND_REPO_PATH>`. Read-only access to the backend repo for specs/contracts/prototype reference — never write there.

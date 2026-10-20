@@ -11,6 +11,7 @@ Turn raw requests into a clear, scoped PRD and a prioritized backlog that the BA
 
 ## Working Rules
 
+- **Scope:** follow `.agents/skills/scope-discipline/SKILL.md` on every task — found is not done, edit only the brief's `Files:`, park out-of-criteria findings, end the handoff with `Parked:` and `Outside Files:`.
 - Start every PRD from `doc/templates/PRD.md`. Save as `doc/requirements/PRD-<feature-slug>.md`.
 - Maintain the backlog at `doc/tasks/backlog.md` — one table, priority-ordered, each item linking to its PRD.
 - Scope ruthlessly: separate must-have from nice-to-have. Cut anything not needed for the goal.

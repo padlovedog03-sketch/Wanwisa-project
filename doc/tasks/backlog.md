@@ -4,26 +4,62 @@ Status: Living
 Owner: pm
 Upstream: doc/requirements/
 
-Ordered by priority. Each row is one deliverable and links to its PRD. Rows 1–9 belong to one PRD and share one approval. Each part is specced and shipped in the order below.
+Rows are in priority order, one deliverable per row, each linked to its PRD. The scope was re-cut by the owner on 2026-10-20 ("ตัดขอบเขตตามนี้เลย"; doc/memory/smallest-useful-scope-first.md): ship the smallest slice that meets the owner's two goals (agents close work faster, and the assistant runs the work), measure it in the pilot trial, and only then decide what comes next.
 
-| Priority | Item | PRD | Tier | Status | Why this priority |
-|---|---|---|---|---|---|
-| 1 | Part J — measurement as a mechanism: a neutral, stdlib-only meter of active time per agent type and category, with a rework report (R37–R40, R32) | [PRD-verify-tiers-merge-gate](../requirements/PRD-verify-tiers-merge-gate.md) | 2 | PRD Approved | Every "after" number depends on it. The headline target (per-size medians: Small ≤ 15, Medium ≤ 25, Large ≤ 50 min) can only be checked with the same instrument used for the baseline. It is cheap and reports only, so it carries little risk. |
-| 2 | Part A+C — the no-fake-green guarantee and a measurable `verify-full` (R1–R6, R10–R12) | same | 2 | PRD Approved | The handoff tier and the merge gate rest on this. It supplies "ran N of M", the executed == collected check and the run record. |
-| 3 | Part G — no hand-written polling: an adapter guard plus per-adapter declarations (R26–R28) | same | 2 | PRD Approved | Small, self-contained, and it pays off at once: 2.4 min per engineer run in hand-written loops, plus 5.4 min in other waits. AGENTS.md §9 requires the lesson to become a mechanism. |
-| 4 | Part B — opt-in handoff tier that the machine selects, with a forced full run when undeclared or untracked inputs change (R7–R9) | same | 2 | PRD Approved | Biggest cut to test time, which is 37% of engineer active time. It must not ship before Part A+C. |
-| 5 | Part H — less rework: affected tests/files listed in the spec, engineer self-check per acceptance criterion, QA rework classified by cause (R29–R31) | same | 2 | PRD Approved | 23% of engineer runs are QA rework. The self-check uses the Part B handoff tier, so this comes after it. |
-| 6 | Part D — merge gate: one machine full run per merge on the final tree, QA grading on its own tree, rule rewording at every R14 location, runner plus local fallback (R13–R17) | same | 2 | PRD Approved | Replaces "verify-full before every handoff" for opted-in projects. It needs the Part A+C record and the Part B tier first. |
-| 7 | Part I — fewer model turns: exact briefs, batched reads, no re-reading large files (R33–R36) | same | 2 | PRD Approved | Model generation is 39–80% of active time, but the saving is unproven. It ranks below the parts that have measured payoffs. The trial may show no gain. |
-| 8 | Part E — suite hygiene: admission bar, retirement review, red-main policy, named baseline failures (R18–R21) | same | 2 | PRD Approved | Controls suite growth, but speed does not depend on it. R21 must be in place before the trial so a planted regression can be told apart from the known reds. |
-| 9 | Part F — real-project trial on the pilot project in a separate worktree, with before/after numbers M1–M14 (R22–R25) | same | 2 | PRD Approved | Per the owner's 2026-10-20 ruling, the work is not done until this passes. It runs last because it exercises every other part. |
-| 10 | Delegated autonomy: an owner-approved mandate, an always-human list, earned autonomy, a daily digest, right-the-first-time, reversibility, continuous self-evolution, task orders and absence mode (R1–R50) | [PRD-delegated-autonomy](../requirements/PRD-delegated-autonomy.md) | 2 | PRD In Review | High value: about 115 owner messages a day, and 4 owner approvals per tier-2 feature. It still comes after verify-tiers because its metrics need Part J (the meter) and Part H (rework causes), and it cannot start its trial until those ship. Within this PRD, ship in this order: always-human list and guards (B), then reversibility (F), then mandate and registry (A), then §5–§6 rewording (G), then the decision log and narrowing (C), then the digest (D), then right-the-first-time (E), then the trial (H), then task orders (J) and absence mode (K), then self-evolution (I), which needs the decision log, the override rate and a working trial method. Guards come before any freedom. |
+VT = [PRD-verify-tiers-merge-gate](../requirements/PRD-verify-tiers-merge-gate.md) · DA = [PRD-delegated-autonomy](../requirements/PRD-delegated-autonomy.md)
 
-**Not tracked here.** These follow-ups belong to the downstream project sessions (doc/memory/project-reds-belong-to-project-session.md):
-- triage the pilot project's 30 red tests
-- render each PDF once
-- set the worker count
-- set up the runner and sharding
-- move structure-watching tests to lint
-- remove change-detector tests
-- split the layout model
+## Active
+
+| Priority | Item | PRD | Status | Why this priority |
+|---|---|---|---|---|
+| 1 | VT Part J + J2: meter of active time per agent type and category, reported per size class | VT | Done (merged a724256, fd6efb2) | Every "after" number is measured with this. |
+| 2 | VT Parts I and H: fewer model turns; less rework (affected tests in spec, engineer self-check, rework causes) | VT | Done (merged) | Rework is 23% of engineer runs. |
+| 3 | VT Part A+C: the no-fake-green guarantee and a measurable `verify-full` | VT | Finishing under amendment am2 (SPEC-verify-tiers-merge-gate-am2-scanner-scope) | The handoff tier and the merge gate rest on it. |
+| 4 | DA Part B: always-human guards | DA | Finishing under amendment am1 (SPEC-delegated-autonomy-am1-guards-catch-accidents) | Guards come before any freedom. Task orders (row 9) depend on it. |
+| 5 | VT Part G: no hand-written polling | VT | In progress | Engineer runs lose 2.4 min to hand-written loops and 5.4 min to other waits, and the fix is small. |
+| 6 | DA Part E, first half (E-AC1–E-AC4): learning loop, reviewer gate before QA, briefs carry the impact map | DA | In progress | Getting it right the first time cuts rework and owner corrections. |
+| 7 | VT Part B: handoff tier with machine-selected tests | VT | Not started | Tests are 37% of engineer active time. |
+| 8 | VT Part D: merge gate | VT | Not started | Replaces "verify-full before every handoff" for opted-in projects. Task-order merges (J-AC6) need it. |
+| 9 | DA Part J: task orders, plus the minimum that orders need from F, A, G and C (listed below) | DA | Not started | Directly delivers the owner's "the assistant runs the work end to end". |
+| 10 | Pilot trial: VT Part F and DA Part H, combined into one trial on the pilot project | VT + DA | Not started | Neither PRD is done until this trial passes. It runs last because it exercises rows 1–9. |
+
+### Row 9: what task orders need (ACs from SPEC-delegated-autonomy)
+
+- **J (active):** J-AC1 to J-AC7.
+  - J-AC8 is parked, because it feeds the earned-autonomy score (C is parked).
+  - Until C ships, an owner override of an order decision is recorded **only in that order's final report** (J-AC7). It narrows nothing. This is the parked part of R45 (J7).
+  - J-AC6 (merge under an order) needs row 8 (VT Part D).
+- **F (needed in full):**
+  - F-AC1: work under autonomy happens on a branch or worktree.
+  - F-AC2: every log entry carries a one-action reverse. J-AC7's final report needs this.
+  - F-AC3 is already covered by B-AC3.
+- **A (only these):**
+  - A-AC3: the `approve-under` mechanism, exercised through `--order`.
+  - A-AC4: checks (a), (b), (c), (f) and (g), applied to order stamps.
+  - A-AC5: a stamp with no log entry fails.
+  - A-AC6 (c): only the owner runs the owner scripts.
+  - A-AC7: revocation, used by `revoke.sh <order key>`.
+  - A-AC8: with no order or mandate present, every gate works exactly as it does today.
+  - A-AC9: key revisions.
+  - A-AC10: registry entry kinds.
+- **G (only these):**
+  - G-AC1, limited to the order wording: approvals trace to an order, which is exception (b) in §6.1.
+  - G-AC2: the consistency check over the rule text being reworded.
+- **C (dependency outside F/A/G, needs confirmation):**
+  - C-AC1 and C-AC2 (the hash-chained decision log, with its tamper check) are needed by A-AC3, A-AC5, J-AC5 and J-AC7.
+  - The rest of C stays parked.
+
+## Parked — until the trial shows need (owner 2026-10-20)
+
+| Item | PRD | Notes |
+|---|---|---|
+| VT Part E: test-suite hygiene (admission bar, retirement, red-main policy, named baseline) | VT | — |
+| DA Part C: earned autonomy (override rate, widening, automatic narrowing) | DA | Exception: C-AC1 and C-AC2 (decision log) are pulled into row 9. While C is parked, R45 (J7) overrides go into the order's final report only. |
+| DA Part K: absence mode | DA | — |
+| DA Part D: daily digest | DA | — |
+| DA Part I: continuous self-evolution | DA | — |
+| DA Part E, second half (E-AC5, E-AC6): new tests must prove they catch bugs; depth matched to the task | DA | — |
+| DA Part A, rest: A-AC1, A-AC2, A-AC4 (d) and (e), A-AC6 (a), (b) and (d) (the standing mandate itself) | DA | Task orders do not need a standing mandate. |
+| DA Part G, rest: G-AC1 exceptions (a) mandate and (c) absence | DA | They follow when A or K is un-parked. |
+
+**Not tracked here.** These follow-ups belong to the downstream project sessions (doc/memory/project-reds-belong-to-project-session.md): triage the pilot project's 30 red tests; render each PDF once; set the worker count; set up the runner and sharding; move structure-watching tests to lint; remove change-detector tests; split the layout model.

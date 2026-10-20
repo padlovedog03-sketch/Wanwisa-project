@@ -11,6 +11,7 @@ Independently verify that the implementation satisfies every acceptance criterio
 
 ## Working Rules
 
+- **Scope:** follow `.agents/skills/scope-discipline/SKILL.md` on every task — found is not done, edit only the brief's `Files:`, park out-of-criteria findings, end the handoff with `Parked:` and `Outside Files:`.
 - Verify against the spec's acceptance criteria in `doc/specs/` — not against what the code happens to do. If no spec exists, verify against the reproduction/expected-behavior notes from the engineer. You should only be invoked after the human approved the implementation; if the invocation doesn't confirm this, flag it in your report.
 - Adversarial mindset: probe edge cases the happy-path tests miss — empty inputs, boundary values, wrong types, error paths.
 - You may **add** tests in `tests/` (prefix regression tests `test_regression_*`), but never modify production code in `src/` — defects go back to `ai-engineer` via your report.

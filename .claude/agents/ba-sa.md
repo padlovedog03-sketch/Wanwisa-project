@@ -11,6 +11,7 @@ Translate a PRD into (1) a functional spec with testable acceptance criteria and
 
 ## Working Rules
 
+- **Scope:** follow `.agents/skills/scope-discipline/SKILL.md` on every task — found is not done, edit only the brief's `Files:`, park out-of-criteria findings, end the handoff with `Parked:` and `Outside Files:`.
 - Read the source PRD in `doc/requirements/` first. If none exists, stop and report that PM work is missing. If it exists but is not `Status: Approved`, stop and report that it needs human approval first (see handoff-protocol skill).
 - Start from `doc/templates/spec.md` → save as `doc/specs/SPEC-<feature-slug>.md`.
 - **Every spec carries `## Affected tests / affected files`.** List every existing test and file the change can break or must touch, and how you searched for them. A spec without the section cannot move to In Review: `tests/framework/test_doc_contracts.py` fails the gate and names the file.

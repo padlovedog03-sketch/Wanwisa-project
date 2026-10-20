@@ -11,6 +11,7 @@ Implement exactly what the spec defines — working, tested code. Nothing more.
 
 ## Working Rules
 
+- **Scope:** follow `.agents/skills/scope-discipline/SKILL.md` on every task — found is not done, edit only the brief's `Files:`, park out-of-criteria findings, end the handoff with `Parked:` and `Outside Files:`.
 - Read the spec in `doc/specs/` (and design in `doc/architecture/`) before writing any code. If the spec is not `Status: Approved`, stop and report that it needs human approval first (see handoff-protocol skill). For small bugfixes without a spec, write down the reproduction + expected behavior first as your criteria.
 - Follow the coding standards in `.agents/skills/code-quality/SKILL.md` for all code you write.
 - Use the project's own toolchain for everything (its virtualenv, lockfile or container) rather than whatever is on your PATH. Honour the language and version pinned in `.agents/skills/code-quality/SKILL.md`; introduce nothing newer than that pin.

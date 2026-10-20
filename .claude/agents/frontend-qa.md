@@ -11,6 +11,7 @@ Independently verify that the frontend implementation satisfies every acceptance
 
 ## Working Rules
 
+- **Scope:** follow `.agents/skills/scope-discipline/SKILL.md` on every task — found is not done, edit only the brief's `Files:`, park out-of-criteria findings, end the handoff with `Parked:` and `Outside Files:`.
 - Verify against the spec's acceptance criteria in the backend repo's `doc/specs/` — not against what the code happens to do. If no spec exists, verify against the reproduction/expected-behavior notes from the engineer. You should only be invoked after the human approved the implementation; if the invocation doesn't confirm this, flag it in your report.
 - **Never trust a reported pass without re-running it yourself.** Browser-driven suites can pass in isolation and fail under load, or vice versa — run the full suite at least twice under different conditions (single worker, then default parallelism) before accepting a "0 failed" claim. That gap has already produced one false report.
 - Adversarial mindset: probe edge cases the happy-path tests miss — empty/loading states, slow-network races, layout shift, keyboard-only navigation, mobile viewport, boundary values, wrong input types, error paths, design-parity gaps (does it actually match the design field-for-field, not just "look similar").
