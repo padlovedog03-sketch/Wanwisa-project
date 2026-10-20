@@ -83,6 +83,75 @@ def test_local_denylist_catches_a_project_leak_anywhere(tmp_path: Path) -> None:
     assert ".claude/hook.py:1: ACME-PORTAL" in result.stdout
 
 
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=root, capture_output=True, check=True)
+
+
+def _git_template(tmp_path: Path) -> Path:
+    """A template under git with a local denylist, tracked files indexed."""
+    root = _template(tmp_path)
+    (root / "scripts" / "neutrality-denylist.local.txt").write_text(
+        "acme-portal\n", encoding="utf-8"
+    )
+    _git(root, "init", "-q")
+    _git(root, "add", "AGENTS.md", "scripts/tool.py")
+    return root
+
+
+def test_untracked_worktree_copy_is_not_scanned(tmp_path: Path) -> None:
+    """An isolated agent's worktree holds an untracked copy of the denylist
+    (and of anything else); scanning it turned verify-full red for nothing."""
+    root = _git_template(tmp_path)
+    wt = root / ".claude" / "worktrees" / "agent-x"
+    (wt / "scripts").mkdir(parents=True)
+    (wt / "scripts" / "neutrality-denylist.local.txt").write_text("acme-portal\n", encoding="utf-8")
+    (wt / "notes.md").write_text("ACME-PORTAL\n", encoding="utf-8")
+    (root / "scripts" / "scratch.py").write_text("# uses openai\n", encoding="utf-8")
+    result = _run(root)
+    assert result.returncode == 0, result.stdout
+    assert "0 project leak(s)" in result.stdout
+
+
+def test_tracked_leak_is_still_caught_in_a_git_repo(tmp_path: Path) -> None:
+    root = _git_template(tmp_path)
+    (root / ".claude").mkdir()
+    (root / ".claude" / "hook.py").write_text("# copied from ACME-PORTAL\n", encoding="utf-8")
+    (root / "scripts" / "tool.py").write_text("# needs Anthropic\n", encoding="utf-8")
+    _git(root, "add", ".claude/hook.py")
+    # Even force-tracked, the denylist is never reported as a leak of itself.
+    _git(root, "add", "-f", "scripts/neutrality-denylist.local.txt")
+    result = _run(root)
+    assert result.returncode == 1
+    assert ".claude/hook.py:1: ACME-PORTAL" in result.stdout
+    assert "scripts/tool.py:1: Anthropic" in result.stdout
+    assert "neutrality-denylist.local.txt:" not in result.stdout
+
+
+def test_outside_git_still_scans_but_skips_worktrees(tmp_path: Path) -> None:
+    """Fallback for a plain copy with no `.git` (README quick start is `cp -R`)."""
+    root = _template(tmp_path)
+    (root / "scripts" / "neutrality-denylist.local.txt").write_text(
+        "acme-portal\n", encoding="utf-8"
+    )
+    wt = root / ".claude" / "worktrees" / "agent-x"
+    wt.mkdir(parents=True)
+    (wt / "notes.md").write_text("ACME-PORTAL\n", encoding="utf-8")
+    env = {**os.environ, "NEUTRALITY_ROOT": str(root), "GIT_CEILING_DIRECTORIES": str(tmp_path)}
+
+    def run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(_SCRIPT)], capture_output=True, text=True, env=env, check=False
+        )
+
+    first = run()
+    assert first.returncode == 0, first.stdout
+    (root / "notes.md").write_text("ACME-PORTAL\n", encoding="utf-8")
+    result = run()
+    assert result.returncode == 1
+    assert "notes.md:1: ACME-PORTAL" in result.stdout
+    assert ".claude/worktrees" not in result.stdout
+
+
 def test_bootstrapped_project_skips_loudly(tmp_path: Path) -> None:
     root = _template(tmp_path)
     (root / "AGENTS.md").write_text("# AGENTS.md — Payments\n", encoding="utf-8")
@@ -98,6 +167,11 @@ def test_denylist_is_git_ignored() -> None:
     assert "scripts/neutrality-denylist.local.txt" in ignored, (
         "the denylist names a project; it must never be committed"
     )
+
+
+def test_agent_worktrees_are_git_ignored() -> None:
+    ignored = (_REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ".claude/worktrees/" in ignored, "an agent's worktree is not part of this repo"
 
 
 def test_claude_shim_imports_agents_md_and_holds_no_rules() -> None:

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -68,42 +69,59 @@ PROVIDER_PATTERN = re.compile(
 PLACEHOLDER = "<" + "PROJECT>"
 DENYLIST_NAME = "scripts/neutrality-denylist.local.txt"
 _SKIP_DIRS = {"__pycache__", ".pytest_cache"}
+_WORKTREES = ".claude/worktrees/"
 
 
 def _root() -> Path:
     return Path(os.environ.get("NEUTRALITY_ROOT", Path(__file__).resolve().parents[1]))
 
 
-def _core_files(root: Path) -> list[Path]:
-    """Real files under CORE_PATHS. Symlinks are skipped: they point at core
-    files already counted, and following them would double-report."""
-    found: list[Path] = []
-    for rel in CORE_PATHS:
-        base = root / rel
-        if base.is_file():
-            found.append(base)
-            continue
-        if not base.is_dir():
-            continue
-        for path in sorted(base.rglob("*")):
-            if path.is_symlink() or not path.is_file():
-                continue
-            if _SKIP_DIRS.intersection(path.relative_to(root).parts):
-                continue
-            found.append(path)
-    return [p for p in found if p.relative_to(root).as_posix() not in ADAPTER_EXEMPT]
+def _repo_files(root: Path) -> list[Path]:
+    """Every real file that belongs to the repo. Symlinks are skipped: they
+    point at files already counted, and following them would double-report.
 
-
-def _all_text_files(root: Path) -> list[Path]:
+    Inside git this is `git ls-files` — tracked files only, the same way
+    verify_approvals and approve.py enumerate. Walking the disk instead swept
+    up `.claude/worktrees/` (an isolated agent's untracked copy of the whole
+    repo, denylist included) and turned verify-full red for nothing. Outside
+    git (a plain `cp -R` copy) it falls back to walking the disk, still
+    skipping agent worktrees.
+    """
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=root, capture_output=True, check=True, timeout=60
+        ).stdout
+        paths = [root / os.fsdecode(raw) for raw in listed.split(b"\0") if raw]
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        paths = [
+            p
+            for p in root.rglob("*")
+            if not p.relative_to(root).as_posix().startswith(_WORKTREES)
+        ]
     skip = _SKIP_DIRS | {".git"}
-    return [
+    return sorted(
         p
-        for p in sorted(root.rglob("*"))
+        for p in paths
         if p.is_file()
         and not p.is_symlink()
         and not skip.intersection(p.relative_to(root).parts)
-        and p.relative_to(root).as_posix() != DENYLIST_NAME
-    ]
+    )
+
+
+def _core_files(root: Path) -> list[Path]:
+    """Repo files under CORE_PATHS, minus the adapter exemptions."""
+    found: list[Path] = []
+    for path in _repo_files(root):
+        rel = path.relative_to(root).as_posix()
+        if rel in ADAPTER_EXEMPT:
+            continue
+        if any(rel == base or rel.startswith(base + "/") for base in CORE_PATHS):
+            found.append(path)
+    return found
+
+
+def _all_text_files(root: Path) -> list[Path]:
+    return [p for p in _repo_files(root) if p.relative_to(root).as_posix() != DENYLIST_NAME]
 
 
 def _read(path: Path) -> str | None:
