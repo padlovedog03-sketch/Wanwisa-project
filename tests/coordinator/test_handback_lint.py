@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "handback_lint.py"
 
@@ -305,3 +307,29 @@ def test_only_matches_from_the_start_of_the_id_not_anywhere_in_it(tmp_path: Path
     result = _run_only(tmp_path, handback, "AC")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "all 2 AC(s) matching AC" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "result",
+    ["_not done_", "(not done)", "✗ not done", "✘ not done", "❌ not done", "not-done", "not  done", "notdone", "[not done]", "1 of 2 passed, rest not done"],
+    ids=["underscores", "parens", "ballot-x", "heavy-ballot-x", "cross-mark", "hyphen", "two-spaces", "no-space", "brackets", "mid-result"],
+)
+def test_a_decorated_or_respelled_not_done_is_still_open(result: str) -> None:
+    problems = hl.lint_self_check(f"Self-check:\n- H-AC1: pytest a → {result}\n", ["H-AC1"])
+    assert problems == ["self-check for H-AC1 is not done — open AC"]
+
+
+def test_a_met_result_mentioning_done_alone_is_not_open() -> None:
+    assert hl.lint_self_check("Self-check:\n- H-AC1: pytest a → done, 3 passed\n", ["H-AC1"]) == []
+
+
+def test_any_not_done_line_for_an_ac_keeps_it_open_and_the_duplicate_is_named() -> None:
+    text = "Self-check:\n- H-AC1: pytest a → 1 passed\n- H-AC1: pytest a → `not done`\n"
+    problems = hl.lint_self_check(text, ["H-AC1"])
+    assert "self-check for H-AC1 is not done — open AC" in problems
+    assert "self-check for H-AC1 has 2 lines — keep one" in problems
+
+
+def test_a_duplicate_line_is_a_problem_even_when_both_are_met() -> None:
+    text = "Self-check:\n- H-AC1: pytest a → 1 passed\n- H-AC1: pytest b → 2 passed\n"
+    assert hl.lint_self_check(text, ["H-AC1"]) == ["self-check for H-AC1 has 2 lines — keep one"]

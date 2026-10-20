@@ -22,7 +22,10 @@ missing field is the failure.
 `<AC-id>: <command> → <result>` for every AC id in the spec's first table
 column. The block runs from the `Self-check:` line to the first blank line.
 Again presence only: it cannot tell whether the command was really run.
-A line whose result is `not done` is an open AC: listed, and never counted as met.
+A line whose result says `not done` is an open AC: listed, and never counted as met.
+Markup and spacing are ignored (`` `not done` ``, `**not done**`, `(not done)`, `✗ not done`,
+`not-done`, `notdone`), and the phrase counts anywhere in the result. If any line for an AC
+is not done the AC is open, and more than one line for an AC is itself a problem.
 
 `--only <prefix>` (repeatable) limits the required ACs to those whose id starts
 with the prefix, so a one-increment handoff on a multi-increment spec is checked
@@ -79,6 +82,15 @@ _SPEC_AC_RE = re.compile(r"^\|\s*(" + _AC_ID + r")\s*\|", re.MULTILINE)
 _SELF_CHECK_LINE_RE = re.compile(r"^[ \t]*[-*]?[ \t]*(" + _AC_ID + r")[ \t]*:[ \t]*(.*?)[ \t]*(?:→|->)[ \t]*(.*?)[ \t]*$")
 
 
+#: Markdown and decoration stripped before judging a result, with all whitespace and hyphens.
+_RESULT_NOISE_RE = re.compile(r"[`*_()\[\]✗✘❌\s-]+")
+
+
+def _is_not_done(result: str) -> bool:
+    """True when the result says `not done` in any markup or spacing. Fails closed: anywhere counts."""
+    return "notdone" in _RESULT_NOISE_RE.sub("", result.lower())
+
+
 def spec_ac_ids(spec_text: str) -> list[str]:
     """AC ids from the spec's first table column, in order, without duplicates."""
     return list(dict.fromkeys(_SPEC_AC_RE.findall(spec_text)))
@@ -90,22 +102,26 @@ def lint_self_check(text: str, ac_ids: list[str]) -> list[str]:
     start = next((i for i, line in enumerate(lines) if re.match(r"^[ \t]*\**Self-check:\**[ \t]*$", line)), None)
     if start is None:
         return ["no `Self-check:` block — one line `<AC-id>: <command> → <result>` per AC"]
-    found: dict[str, tuple[str, str]] = {}
+    found: dict[str, list[tuple[str, str]]] = {}
     for line in lines[start + 1 :]:
         if not line.strip():
             break
         match = _SELF_CHECK_LINE_RE.match(line)
         if match:
-            found.setdefault(match.group(1), (match.group(2), match.group(3)))
+            found.setdefault(match.group(1), []).append((match.group(2), match.group(3)))
     problems = []
     for ac in ac_ids:
-        if ac not in found:
+        entries = found.get(ac)
+        if not entries:
             problems.append(f"self-check missing for {ac}")
-        elif found[ac][1].lower().startswith("not done"):
+            continue
+        if len(entries) > 1:
+            problems.append(f"self-check for {ac} has {len(entries)} lines — keep one")
+        if any(_is_not_done(result) for _, result in entries):
             problems.append(f"self-check for {ac} is not done — open AC")
-        elif not found[ac][0]:
+        elif not all(command for command, _ in entries):
             problems.append(f"self-check for {ac} has no command — name what you ran")
-        elif not found[ac][1]:
+        elif not all(result for _, result in entries):
             problems.append(f"self-check for {ac} has no result — give the command's outcome")
     return problems
 
