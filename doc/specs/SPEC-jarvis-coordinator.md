@@ -1,6 +1,7 @@
 # SPEC: Jarvis coordinator — Increment 1 (R1–R8): every message goes to Jarvis, duties applied
 
-Status: In Review
+Status: Approved
+Approval: spec-jarvis-coordinator-2026-10-20
 Owner: ba-sa
 Upstream: doc/requirements/PRD-jarvis-coordinator.md (Approved, registry key `prd-jarvis-coordinator-2026-10-20`) · owner context in the ba-sa brief of 2026-10-20: D5 = the R5 split as written; D6 = spec both paths (main-thread `agent` setting primary, UserPromptSubmit injection fallback), selected by a measured probe
 Date: 2026-10-20
@@ -201,4 +202,5 @@ D1–D4 do not affect this increment. D5 is applied as written in R5.
 
 ## Approval history
 
+- **2026-10-20 — approved (human).** Registry key `spec-jarvis-coordinator-2026-10-20`, carried on the canonical `Approval:` line above.
 - **2026-10-20 — drafted.** By ba-sa, from the Approved PRD, the owner context in the brief (D5, D6), probes P1–P13 run in a scratch repo, and a prototype of the spawn check run on a scratch copy of this repo.
