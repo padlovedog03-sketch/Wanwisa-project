@@ -137,10 +137,12 @@ def _repo(tmp_path: Path, conf: str | None = None, *, changes: bool = True,
     return probe
 
 
-def _run(probe: Path, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run(probe: Path, *args: str, cwd: Path | None = None,
+         caller_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         ["bash", str(probe), *args], cwd=cwd or probe.parent.parent,
-        capture_output=True, text=True, timeout=120, check=False, env=_env(),
+        capture_output=True, text=True, timeout=120, check=False,
+        env={**_env(), **(caller_env or {})},
     )
     # B-AC8, on every run of every case.
     assert "GREEN" not in result.stdout, result.stdout
@@ -861,3 +863,88 @@ def test_b12_handoff_runs_never_evict_a_full_record(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert full.is_dir()
     assert len([p for p in runs.iterdir() if p.name.endswith("-handoff")]) == 20
+
+
+# ---------------------------------------------------------------------------
+# B-AC5, B-AC6 — every setting comes from the conf, never from the caller's
+# environment (review D1). Each case exports one setting the conf leaves unset.
+# ---------------------------------------------------------------------------
+
+
+def test_leak_an_exported_tier_switch_does_not_opt_in(tmp_path: Path) -> None:
+    probe = _repo(tmp_path, _conf_text(VERIFY_HANDOFF_TIER=None))
+    leak = {"VERIFY_HANDOFF_TIER": "on"}
+
+    status = _run(probe, "--status", caller_env=leak)
+    result = _run(probe, caller_env=leak)
+
+    assert (status.returncode, status.stdout) == (0, "not opted in\n")
+    assert result.returncode == 3 and result.stdout.strip() == NOT_OPTED_IN, result.stdout
+    assert _nothing_ran(tmp_path)
+
+
+def test_leak_exported_untracked_inputs_still_run_the_full_set(tmp_path: Path) -> None:
+    probe = _repo(tmp_path, _conf_text(VERIFY_UNTRACKED_INPUTS=None))
+
+    result = _run(probe, caller_env={"VERIFY_UNTRACKED_INPUTS": "doc/**"})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _full_ran(tmp_path, result) and _selector_args(tmp_path, result) is None
+    assert _last(result) == "HANDOFF TIER — ran 5 of 5 (full collected set — no untracked inputs declared)"
+
+
+def test_leak_an_exported_base_ref_is_not_the_base(tmp_path: Path) -> None:
+    probe = _repo(tmp_path, _conf_text(VERIFY_BASE_REF=None))
+
+    result = _run(probe, caller_env={"VERIFY_BASE_REF": "base"})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _last(result) == "HANDOFF TIER — ran 5 of 5 (full collected set — base origin/main not found)"
+
+
+@pytest.mark.parametrize("missing", ["VERIFY_SELECT_CMD", "VERIFY_FULL_TEST_CMD", "VERIFY_COLLECT_CMD"])
+def test_leak_an_exported_command_does_not_fill_the_conf(tmp_path: Path, missing: str) -> None:
+    probe = _repo(tmp_path, _conf_text(**{missing: None}))
+
+    result = _run(probe, caller_env={missing: _BASE_CONF[missing]})
+
+    assert result.returncode == 3, result.stdout
+    assert _last(result).startswith("HANDOFF TIER NOT CONFIGURED — %s is not set" % missing)
+    assert _nothing_ran(tmp_path)
+
+
+def test_leak_an_exported_allow_list_waives_nothing(tmp_path: Path) -> None:
+    probe = _repo(tmp_path, _conf_text(VERIFY_SELECT_CMD="pytest -k smoke"))
+
+    result = _run(probe, caller_env={"VERIFY_ALLOWED_FILTERS": "-k smoke|leaked"})
+
+    assert result.returncode == 2, result.stdout
+    assert not any(ln.startswith("declared filter:") for ln in result.stdout.splitlines()), result.stdout
+    assert any(ln.startswith("BANNED: -k smoke") for ln in result.stdout.splitlines()), result.stdout
+
+
+def test_leak_an_exported_extra_ban_bans_nothing(tmp_path: Path) -> None:
+    probe = _repo(tmp_path, _conf_text(VERIFY_UNTRACKED_INPUTS=""))
+
+    result = _run(probe, caller_env={"VERIFY_EXTRA_BANNED": "--full"})
+
+    assert result.returncode == 0, result.stdout
+    assert not any(ln.startswith("BANNED:") for ln in result.stdout.splitlines()), result.stdout
+
+
+def test_leak_exported_test_runners_are_not_the_projects(tmp_path: Path) -> None:
+    probe = _repo(tmp_path)
+
+    result = _run(probe, caller_env={"VERIFY_TEST_RUNNERS": "stub_select.py"})
+
+    assert result.returncode == 0, result.stdout
+    assert "runs stub_select.py" not in result.stdout
+
+
+def test_leak_an_exported_lint_is_not_run(tmp_path: Path) -> None:
+    probe = _repo(tmp_path)
+
+    result = _run(probe, caller_env={"LINT": "false"})
+
+    assert result.returncode == 0, result.stdout
+    assert "lint" not in result.stdout

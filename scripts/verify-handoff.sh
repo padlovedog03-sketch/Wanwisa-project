@@ -28,6 +28,14 @@ STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # $VERIFY_JUNIT_DIR in its arrays at assignment time.
 export VERIFY_RUN_DIR="$RUN_DIR" VERIFY_JUNIT_DIR="$RUN_DIR/junit/conf"
 
+# Every setting this script reads comes from the conf alone: a value the caller
+# exported must not fill a gap the conf left (it could opt in, narrow the full
+# set, or waive a ban). The recorder's own environment reads stay overridable:
+# VERIFY_RUNNER_ID (a label), the VERIFY_*BUDGET*/VERIFY_TEST_SIZE_RULES warnings
+# (never a verdict) and PYTEST_ADDOPTS (scanned for bans, never trusted).
+unset VERIFY_HANDOFF_TIER VERIFY_BASE_REF VERIFY_UNTRACKED_INPUTS VERIFY_SELECT_CMD \
+  VERIFY_FULL_TEST_CMD VERIFY_COLLECT_CMD VERIFY_ALLOWED_FILTERS VERIFY_TEST_RUNNERS \
+  VERIFY_EXTRA_BANNED LINT
 # A conf with a syntax error is never "opted in": bash would keep whatever it
 # read before the error and drop the rest without a word.
 conf_state="absent"
