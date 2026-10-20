@@ -13,17 +13,19 @@ ordinary investigation, and a guard with false positives gets switched off
 substring matching to command-position matching.
 
 **The review gate (SPEC-delegated-autonomy E-AC2, R19, D5 — all work, not opt-in).**
-A `qa` or `frontend-qa` spawn needs `doc/qa/REVIEW-<slug>.md` with a PASS
-`Verdict:` and a `Reviewer-run:` different from its `Author-run:`. The slug is
-each `REVIEW-*.md` the prompt names, or else each `SPEC-<slug>.md` it names;
-`NO_SPEC_BUGFIX:` work must name a `REVIEW-bugfix-<id>.md`. The engineer's
-override token never opens this gate. STATED LIMIT: different run IDs prove two
+One explicit rule: a `qa` or `frontend-qa` prompt carries a line
+`Review: doc/qa/REVIEW-<name>.md` (plain, bulleted or bold, like a brief field),
+and the gate checks THAT file only — the first such line; no name is derived
+and REVIEW files mentioned elsewhere in the prompt are ignored. The file must
+exist in `doc/qa/` of the tree this hook lives in (the main tree, for the
+registered hook), have a PASS `Verdict:`, a `Reviewer-run:` different from its
+`Author-run:`, and an `Upstream:` naming the spec under test: the SPEC on a
+`Slice:` or `Spec:` line, else the first SPEC the prompt names. `NO_SPEC_BUGFIX:`
+work names a `REVIEW-bugfix-<id>.md` and has no spec to match. The engineer's
+override token never opens this gate. STATED LIMITS: different run IDs prove two
 runs, not that the reviewer ignored the author's conversation — that part is the
-`reviewer` agent definition's instruction. An explicitly named REVIEW file must
-carry an `Upstream:` naming one of the prompt's SPEC files (when it names any),
-so increment-scoped names like `REVIEW-<slug>-E.md` work. A REVIEW derived from
-the SPEC name covers every increment of that spec: name the increment's review
-explicitly in each QA prompt.
+`reviewer` agent definition's instruction; and only the file name on the
+`Review:` line is used, so any directory written before it is ignored.
 
 **Fail-closed, with an explicit override.** When the prompt names no spec the
 spawn is blocked, because a warning on a spawn is useless: by the time anyone
@@ -59,7 +61,12 @@ _REVIEW_DIR = "doc/qa"
 _REVIEW_TEMPLATE = "doc/templates/review-report.md"
 _BUGFIX_REVIEW_PREFIX = "REVIEW-bugfix-"
 _REVIEW_REFERENCE_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])(REVIEW-[A-Za-z0-9._-]+\.md)")
-_SPEC_SLUG_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])SPEC-([A-Za-z0-9._-]+)\.md")
+# A whole `SPEC-*.md` token: `XSPEC-a.md`, `SPEC-a.md.bak` and `SPEC-a` are not `SPEC-a.md`.
+_SPEC_NAME_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])(SPEC-[A-Za-z0-9._-]+\.md)(?!\.?[A-Za-z0-9_-])")
+# A prompt field line, plain, bulleted (`-`, `*`, `1.`) or bold — as coordinator_lint rule 6.
+_FIELD_LINE = r"^[ \t]*(?:(?:[-*]|\d+\.)[ \t]+)?(?:\*\*)?(?:{field})(?:\*\*)?[ \t]*:(?:\*\*)?(.*)$"
+_REVIEW_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Review"), re.MULTILINE)
+_SUBJECT_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Slice|Spec"), re.MULTILINE)
 # `Verdict:` as a plain line, a heading or bold — never inside another line,
 # so a decorated `Status: Done (Verdict: PASS)` is not read as one.
 _VERDICT_LINE_PATTERN = re.compile(r"^[ \t]*(?:#+[ \t]*)?(?:\*\*)?Verdict(?:\*\*)?[ \t]*:(?:\*\*)?(.*)$", re.MULTILINE)
@@ -124,9 +131,9 @@ def _normalise_run_id(value: str) -> str:
     return value.casefold()
 
 
-def _review_problem(path: Path, specs: list[str]) -> str | None:
+def _review_problem(path: Path, spec: str | None) -> str | None:
     """Why the review at `path` does not open the QA gate, or None if it does.
-    When `specs` is non-empty the review's `Upstream:` must name one of them.
+    When `spec` is given the review's `Upstream:` must name exactly it.
     Never raises: a crash exits 1, and only exit 2 blocks."""
     try:
         text = path.read_text(encoding="utf-8")
@@ -151,43 +158,55 @@ def _review_problem(path: Path, specs: list[str]) -> str | None:
         run_ids[field] = value
     if run_ids["Author-run"] == run_ids["Reviewer-run"]:
         return "`Reviewer-run:` equals `Author-run:` — the author cannot grade its own work"
-    if specs:
+    if spec:
         upstream = re.search(_RUN_LINE.format(field="Upstream"), text, re.MULTILINE)
-        if not upstream or not any(spec in upstream.group(1) for spec in specs):
-            return f"its `Upstream:` names none of {', '.join(specs)} — it reviews other work"
+        if not upstream or spec not in _SPEC_NAME_PATTERN.findall(upstream.group(1)):
+            return f"its `Upstream:` does not name {spec}, the spec under test — it reviews other work"
     return None
 
 
+def _spec_under_test(prompt: str) -> str | None:
+    """The SPEC on a `Slice:` or `Spec:` line, else the first SPEC the prompt names."""
+    for value in _SUBJECT_LINE_PATTERN.findall(prompt):
+        found = _SPEC_NAME_PATTERN.search(value)
+        if found:
+            return found.group(1)
+    found = _SPEC_NAME_PATTERN.search(prompt)
+    return found.group(1) if found else None
+
+
 def _check_review(subagent_type: str, prompt: str) -> None:
-    """E-AC2: block a QA spawn that has no independent PASS review. Exits."""
-    named = list(dict.fromkeys(_REVIEW_REFERENCE_PATTERN.findall(prompt)))
-    slugs = list(dict.fromkeys(_SPEC_SLUG_PATTERN.findall(prompt)))
-    # An explicitly named review must review a spec this prompt names, so a PASS
-    # review of other work quoted for context cannot open the gate by accident.
-    specs = [f"SPEC-{slug}.md" for slug in slugs] if named else []
-    if _OVERRIDE_TOKEN in prompt:
-        required = [name for name in named if name.startswith(_BUGFIX_REVIEW_PREFIX)]
-        wanted = f"{_REVIEW_DIR}/{_BUGFIX_REVIEW_PREFIX}<id>.md"
-        specs = []
+    """E-AC2: block a QA spawn whose `Review:` line does not name an
+    independent PASS review of the work under test. Exits."""
+    prefix = f"BLOCKED (.claude/hooks/guard_agent_spawn.py, R19): `{subagent_type}` needs an independent review"
+    bugfix = _OVERRIDE_TOKEN in prompt
+    wanted = f"{_BUGFIX_REVIEW_PREFIX}<id>.md" if bugfix else "REVIEW-<slug>.md"
+    line = _REVIEW_LINE_PATTERN.search(prompt)
+    named = _REVIEW_REFERENCE_PATTERN.search(line.group(1)) if line else None
+    if not named:
+        _block(
+            f"{prefix} — add \"Review: {_REVIEW_DIR}/{wanted}\" (a PASS review by a different run) to the "
+            f"QA prompt; the `reviewer` agent writes it from {_REVIEW_TEMPLATE}."
+        )
+    name = named.group(1)
+    spec = None
+    if bugfix:
+        if not name.startswith(_BUGFIX_REVIEW_PREFIX):
+            _block(f"{prefix} — `{_OVERRIDE_TOKEN}` work must name {_REVIEW_DIR}/{wanted} on its `Review:` line, not {name}.")
     else:
-        required = named or [f"REVIEW-{slug}.md" for slug in slugs]
-        wanted = f"{_REVIEW_DIR}/REVIEW-<slug>.md (or the SPEC it reviews)"
-    if not required:
-        problems = [f"the prompt names no {wanted}"]
-    else:
-        root = _repo_root()
-        problems = []
-        for name in required:
-            problem = _review_problem(root / _REVIEW_DIR / name, specs)
-            if problem:
-                problems.append(f"{_REVIEW_DIR}/{name}: {problem}")
-    if not problems:
+        spec = _spec_under_test(prompt)
+        if not spec:
+            _block(
+                f"{prefix} — name the spec under test on a `Spec: doc/specs/SPEC-<slug>.md` line, so "
+                f"{_REVIEW_DIR}/{name} can be checked against it."
+            )
+    problem = _review_problem(_repo_root() / _REVIEW_DIR / name, spec)
+    if not problem:
         sys.exit(0)
     _block(
-        f"BLOCKED (.claude/hooks/guard_agent_spawn.py, R19): `{subagent_type}` needs an "
-        f"independent review first — {'; '.join(problems)}. Spawn the `reviewer` agent to write it "
+        f"{prefix} — {_REVIEW_DIR}/{name}: {problem}. Spawn the `reviewer` agent to write it "
         f"from {_REVIEW_TEMPLATE} with `Verdict: PASS` and a `Reviewer-run:` different from "
-        f"`Author-run:`, then name it in this prompt."
+        f"`Author-run:`, then name it on the prompt's `Review:` line."
     )
 
 
