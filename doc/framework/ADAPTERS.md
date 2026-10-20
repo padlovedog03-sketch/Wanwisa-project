@@ -25,6 +25,20 @@ Upstream: [`RUNTIME-CONTRACT.md`](RUNTIME-CONTRACT.md) — "ตัวเชื�
 | R41 ขนาดงานในเครื่องวัด (meter size class (R41)) | มี — ตัวอ่านเดียวกันดึงไฟล์ที่ถูกแก้จากช่องพาธของเครื่องมือแก้ไฟล์: `file_path` ของ Edit / Write / MultiEdit และ `notebook_path` ของ NotebookEdit (พาธสัมพัทธ์เทียบกับ `cwd` ของบรรทัดนั้น) | — | นับพาธตามที่เขียน จึงลิงก์สัญลักษณ์หรือชื่อที่ต่างแค่ตัวพิมพ์ของไฟล์เดียวนับเป็นสองไฟล์ · ไฟล์ที่เขียนด้วยคำสั่งเชลล์ไม่ถูกนับ (เครื่องวัดพิมพ์จำนวนรอบที่มีให้เห็น) · ช่องของ MultiEdit ยังไม่ได้พิสูจน์ เพราะไม่พบการเรียกเลยในบันทึก 909 ไฟล์ในเครื่อง (วัด 2026-10-20) |
 | R26 ห้ามเขียนลูปรอผลเอง | R26 polling guard: enforced — `.claude/hooks/guard_bash.py` ปฏิเสธลูป `while`/`until`/`for` ที่มี `sleep` อยู่ข้างใน (กฎ R26) · ลูปที่ไม่ได้รอผลจริง ยกเว้นได้ด้วย `ALLOW_POLL=1; <ลูป>` ที่หัวคำสั่งเท่านั้น จึงเห็นในบันทึกทุกครั้ง | — | ข้อจำกัดที่ประกาศไว้ ไม่ไล่ปิด (มติ `doc/memory/ease-of-use-over-strictness.md`): ลูปใน `bash -c "…"`, ในไฟล์สคริปต์, ในเฮียร์ด็อกที่ป้อนให้เชลล์, ลูป sleep ของภาษาอื่น เช่น Python, คำสั่ง `watch`, และเครื่องมืออื่นที่ไม่ใช่ Bash (hook จับเฉพาะ `Bash`) มองไม่เห็นทั้งหมด · เครื่องวัด R37 นับเวลาของลูปที่หลุดไปได้ย้อนหลัง |
 | R27 การแจ้งจบงานเบื้องหลัง | completion notification: yes — งานที่สั่งรันเบื้องหลังแจ้งผู้ช่วยเองเมื่อจบ ผู้ช่วยจึงจบตาหรือทำงานอื่นที่ไม่ขึ้นกับมันระหว่างรอได้ | — | — |
+| coordinator entry (ทางเข้าผู้ประสานงาน จาร์วิส) | มี — ค่า `agent` ใน `.claude/settings.json` เป็น `jarvis` เธรดหลักทุกรอบจึงรันเป็น `.claude/agents/jarvis.md` (ตัวชี้ไป `AGENTS.md` §0) · ด่านเรียกผู้ช่วยย่อย `.claude/hooks/guard_agent_spawn.py` ปฏิเสธการเรียก `jarvis` และใบสั่งถึงบทบาทที่ไม่มีบรรทัด `Tier:` หรือ `Files:` ที่กรอกแล้ว | ถ้าเธรดหลักไม่มีชื่อผู้ช่วย (ค่า `agent` ถูกลบหรือถูกทับเป็นค่าว่าง) `.claude/hooks/inject_jarvis.py` ที่ผูกกับ UserPromptSubmit แทรกตัวชี้เดียวกันทุกข้อความ | หน้าที่ส่วนใหญ่เป็นการรายงานตัวเอง ดูรายการข้อจำกัดของผู้ประสานงานข้างล่าง |
+
+**ข้อจำกัดของผู้ประสานงาน (จาร์วิส) ที่ประกาศไว้** — `doc/specs/SPEC-jarvis-coordinator.md` · ด่านดักการลืม
+ไม่ใช่การจงใจเขียนเท็จ (scope-discipline ข้อ 5)
+
+- **JC-L1** — The `Tier:` line in Jarvis's first reply is self-reported; nothing reads Jarvis's replies.
+- **JC-L2** — After the tier, the §5 route order is checked only at the engineer spawn (Approved spec) and the QA spawn (independent PASS review); every other step, and ending the turn at tier-2 gates, is self-reported.
+- **JC-L3** — In a brief, only the presence of a filled `Tier:` and `Files:` line is checked, never truth; `Verify with:`, the threat-model sentence for reviewer and QA, and the `REWORK:` prefix are self-reported.
+- **JC-L4** — The R5 split (what Jarvis decides, what goes to the owner) is self-reported; a ruling Jarvis made that was the owner's shows only in the end-of-task report.
+- **JC-L5** — Staying silent until the task ends (R7) is self-reported; it is measured afterwards by M1 (Increment 2), not prevented.
+- **JC-L6** — Recording a lesson after an owner correction (R8) is self-reported; `memory_lint.py` checks the format and `correction_rate.py` counts lessons with no mechanism, but nothing checks that a correction produced a lesson.
+- **JC-L7** — `coordinator_lint.py --approve-ready` runs only when Jarvis runs it before handing the owner an `approve.sh` command.
+- **JC-L8** — Jarvis is the default through the committed `agent` setting; a typed `--agent`, or a local or user `agent` setting, replaces it (measured on CLI 2.1.304). When the replacement is "no agent", the UserPromptSubmit hook injects the Jarvis pointer; when it names another agent, nothing does (by design, PRD A3). Remote-control sessions are unproven. Re-probe on a major CLI upgrade.
+- **JC-L9** — The Jarvis definition still appears in the subagent list (measured); the spawn guard refuses to dispatch it.
 
 **สถานะการพิสูจน์:** ใช้งานจริงทุกวัน และ `tests/hooks/` พิสูจน์ว่า hook ทุกตัวกัดได้จริง
 วันที่ 2026-10-08 เปิดเครื่องมือรอบใหม่แบบไม่โต้ตอบ (`claude -p`) ในคลังนี้: เห็นคู่มือทักษะครบ 4 ตัวผ่านลิงก์
@@ -60,6 +74,9 @@ Upstream: [`RUNTIME-CONTRACT.md`](RUNTIME-CONTRACT.md) — "ตัวเชื�
 | R41 ขนาดงานในเครื่องวัด (meter size class (R41)) | unsupported — ไม่มีตัวอ่านบันทึก จึงไม่รู้ว่ารอบไหนแก้ไฟล์ใด | ตัวอ่านที่เขียนเพิ่มต้องใส่ `paths` ให้การเรียกเครื่องมือแก้ไฟล์ ตามสัญญาใน `scripts/agent_time.py` | ไม่มีตัวเลขแยกตามขนาดงาน จึงตัดสินผลทดลองรายขนาด (R22) ไม่ได้ |
 | R26 ห้ามเขียนลูปรอผลเอง | R26: no enforcement — ไม่มี hook ก่อนใช้เครื่องมือ (ไม่มี C1) | ข้อความกฎใน `.agents/skills/engineering-loop/SKILL.md` หัวข้อ "Waiting on background work" บวกเครื่องวัด R37 ที่นับเวลาลูปรอผลย้อนหลัง | ไม่มีอะไรกันตอนพิมพ์คำสั่งเลย · และเครื่องวัด R37 ของตัวเชื่อมนี้ยังเป็น `unsupported` (แถว R37 ข้างบน) ทางถอยจึงเหลือแค่ข้อความกฎจนกว่าจะมีตัวอ่านบันทึก |
 | R27 การแจ้งจบงานเบื้องหลัง | completion notification: no | รันคำสั่งแบบ foreground โดยใช้ timeout ของเครื่องมือเอง แทนการสั่งเบื้องหลังแล้ววนเช็ก | งานยาวกินเวลาของรอบนั้นทั้งก้อน ทำงานอื่นขนานระหว่างรอไม่ได้ · ถ้างานยาวเกิน timeout ของเครื่องมือ ต้องแบ่งงานเอง |
+| coordinator entry (ทางเข้าผู้ประสานงาน จาร์วิส) | มี — ผู้ช่วยอ่านหน้าที่ของจาร์วิสจาก `AGENTS.md` §0 | ผู้ช่วยทำตาม §0 เองทุกข้อ | ไม่มีอะไรถูกขัดจังหวะ: ใบสั่งที่ขาด `Tier:` หรือ `Files:` ไม่ถูกปฏิเสธ และการเรียกผู้ประสานงานเป็นผู้ช่วยย่อยไม่ถูกกัน |
+
+- **JC-L10** — Other adapters read Jarvis's duties from AGENTS.md; nothing is intercepted, and briefs without `Tier:` or `Files:` are not refused.
 
 **สถานะการพิสูจน์:** ด่านก่อนคอมมิตพิสูจน์แล้วด้วย `tests/framework/test_pre_commit.py` (ล้มจริงเมื่อฝังความผิด)
 **การที่เครื่องมือค่ายอื่นอ่าน `AGENTS.md` และ `.agents/skills/` ได้จริง ยังไม่ได้พิสูจน์ในคลังนี้** —

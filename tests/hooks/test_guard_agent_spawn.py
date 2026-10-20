@@ -50,7 +50,7 @@ def _run_gate(
     payload = json.dumps(
         {
             "tool_name": tool_name,
-            "tool_input": {"subagent_type": subagent_type, "prompt": prompt},
+            "tool_input": {"subagent_type": subagent_type, "prompt": prompt + "\nTier: 1 — test\nFiles: x"},
         }
     )
     return subprocess.run(
@@ -741,3 +741,97 @@ def test_the_review_gate_does_not_touch_engineer_spawns(probe_doc) -> None:
     name = probe_doc("Status: Approved")
     result = _run_gate(subagent_type="ai-engineer", prompt=f"Implement doc/specs/{name}.")
     assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# SPEC-jarvis-coordinator JC-AC3 — Jarvis is the main thread, never a spawn.
+# JC-AC6 — a role-agent brief carries a filled `Tier:` and `Files:` line.
+# These cases send the prompt exactly as given: `_run_gate` appends a filled
+# header (JC-AC7), which would hide the very lines under test.
+# ---------------------------------------------------------------------------
+
+_ROLE_AGENTS = ("pm", "ba-sa", "ai-engineer", "frontend-engineer", "reviewer", "qa", "frontend-qa")
+_BRIEF_MESSAGE = "missing or unfilled:"
+
+
+def _run_brief(subagent_type: str, prompt: str, tool_name: str = "Agent") -> subprocess.CompletedProcess[str]:
+    payload = json.dumps({"tool_name": tool_name, "tool_input": {"subagent_type": subagent_type, "prompt": prompt}})
+    return subprocess.run(
+        [sys.executable, str(_SPAWN_GATE)], input=payload, capture_output=True, text=True, timeout=30, check=False
+    )
+
+
+@pytest.mark.parametrize("subagent_type", ["jarvis", "Jarvis", " jarvis ", "jar​vis", "ｊａｒｖｉｓ"])
+def test_jarvis_is_refused_as_a_subagent_before_any_other_check(subagent_type: str) -> None:
+    result = _run_brief(subagent_type, "Tier: 1 — x\nFiles: a.py\nNO_SPEC_BUGFIX: a long enough repro line")
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert "Jarvis is the main thread, not a role agent" in result.stderr
+
+
+@pytest.mark.parametrize("subagent_type", ["jarvis-helper", "general-purpose", "Explore"])
+def test_types_that_are_not_jarvis_are_not_refused_as_jarvis(subagent_type: str) -> None:
+    result = _run_brief(subagent_type, "")
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+@pytest.mark.parametrize("subagent_type", _ROLE_AGENTS)
+def test_a_role_agent_brief_with_neither_line_is_refused_naming_both(subagent_type: str) -> None:
+    result = _run_brief(subagent_type, "Please do the work.")
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert f"{_BRIEF_MESSAGE} Tier:, Files:" in result.stderr
+    assert "Tier: <0|1|2> — <reason>" in result.stderr and "Files: <paths>" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Files: a.py",
+        "Tier:\nFiles: a.py",
+        "Tier: <0|1|2>\nFiles: a.py",
+        "Tier: high\nFiles: a.py",
+        "Please set the Tier: 1 line.\nFiles: a.py",
+        "Ti​er: 1\nFiles: a.py",
+        "tier: 1\nFiles: a.py",
+        "NO_SPEC_BUGFIX: the parser crashes on a trailing space\nFiles: a.py",
+    ],
+    ids=["no-tier", "tier-empty", "tier-placeholder", "tier-high", "tier-mid-sentence", "tier-zero-width",
+         "tier-lowercase", "override-does-not-open"],
+)
+def test_an_unfilled_tier_line_is_refused_naming_tier_only(prompt: str) -> None:
+    result = _run_brief("ai-engineer", prompt)
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert f"{_BRIEF_MESSAGE} Tier:" in result.stderr and "Tier:, Files:" not in result.stderr
+
+
+@pytest.mark.parametrize("prompt", ["Tier: 1 — x", "Tier: 1 — x\nFiles:", "Tier: 1 — x\nFiles: <paths>"],
+                         ids=["no-files", "files-empty", "files-placeholder"])
+def test_an_unfilled_files_line_is_refused_naming_files_only(prompt: str) -> None:
+    result = _run_brief("reviewer", prompt)
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert f"{_BRIEF_MESSAGE} Files:" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["Tier：1 — x\nFiles: a.py", "**Tier:** 2 — x\n- Files: a.py", "  1. Tier: 0 — x\n* **Files:** a.py, b.py"],
+    ids=["full-width-colon", "bold-and-bulleted", "numbered-and-bold"],
+)
+def test_a_filled_brief_header_in_any_field_form_is_accepted(prompt: str) -> None:
+    result = _run_brief("pm", prompt)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+def test_the_brief_check_runs_before_the_spec_gate_and_the_review_gate() -> None:
+    for result in (_run_brief("ai-engineer", "Implement it."), _run_brief("qa", "Test it.")):
+        assert result.returncode == _EXIT_BLOCK
+        assert _BRIEF_MESSAGE in result.stderr and "rule A5" not in result.stderr and "R19" not in result.stderr
+
+
+@pytest.mark.parametrize("subagent_type", ["Explore", "Plan", "general-purpose", "claude-code-guide", "zz-unknown", ""])
+def test_investigation_and_unknown_types_are_never_checked_for_brief_lines(subagent_type: str) -> None:
+    result = _run_brief(subagent_type, "")
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+def test_a_non_agent_tool_is_never_checked_for_brief_lines() -> None:
+    assert _run_brief("reviewer", "", tool_name="Bash").returncode == _EXIT_ALLOW

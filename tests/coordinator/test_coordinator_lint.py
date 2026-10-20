@@ -518,3 +518,160 @@ def test_an_impact_line_in_another_brief_does_not_count() -> None:
 def test_an_indented_or_bulleted_brief_under_autonomy_is_judged(prefix: str) -> None:
     assert _rule7(_prefixed(prefix, _UNDER_BRIEF) + "\n" + _SELF_REPORT) == []
     assert len(_rule7(_prefixed(prefix, _without("Impact:", _UNDER_BRIEF)) + "\n" + _SELF_REPORT)) == 1
+
+
+# ---------------------------------------------------------------------------
+# SPEC-jarvis-coordinator JC-AC11 — `--approve-ready`: a document handed to
+# approve.sh is committed, clean against HEAD, and `In Review`. Each case runs
+# in its own tmp git repo; approve.py is neither imported nor changed.
+# ---------------------------------------------------------------------------
+
+_IN_REVIEW = "# PRD: probe\n\nStatus: In Review\nUpstream: test\n\n## Approval history\n"
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],
+        cwd=repo, check=True, capture_output=True, timeout=30,
+    )
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "doc" / "requirements").mkdir(parents=True)
+    (tmp_path / "doc" / "specs").mkdir()
+    (tmp_path / "README.md").write_text("x\n", encoding="utf-8")
+    _git(tmp_path, "add", "README.md")
+    _git(tmp_path, "commit", "-qm", "init")
+    return tmp_path
+
+
+def _doc(repo: Path, rel: str, text: str = _IN_REVIEW, *, add: bool = True, commit: bool = True) -> None:
+    (repo / rel).write_text(text, encoding="utf-8")
+    if add:
+        _git(repo, "add", rel)
+    if commit:
+        _git(repo, "commit", "-qm", f"add {rel}")
+
+
+def test_a_committed_clean_in_review_document_prints_the_approve_command(repo: Path) -> None:
+    _doc(repo, "doc/requirements/PRD-zz-probe.md")
+    code, lines = cl.approve_ready(["zz-probe"], repo)
+    assert (code, lines) == (0, ["scripts/approve.sh zz-probe --by <name>"])
+
+
+def test_two_ready_slugs_print_one_command_for_both(repo: Path) -> None:
+    _doc(repo, "doc/requirements/PRD-zz-a.md")
+    _doc(repo, "doc/specs/SPEC-zz-b.md")
+    assert cl.approve_ready(["zz-a", "ZZ-B"], repo) == (0, ["scripts/approve.sh zz-a ZZ-B --by <name>"])
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("untracked", "no tracked document matches 'zz-probe' — git add and commit it"),
+        ("staged-only", "doc/requirements/PRD-zz-probe.md: not committed — commit before handing over approve.sh"),
+        ("edited", "doc/requirements/PRD-zz-probe.md: uncommitted changes — commit before handing over approve.sh"),
+        ("edited-staged", "doc/requirements/PRD-zz-probe.md: uncommitted changes — commit before handing over approve.sh"),
+    ],
+)
+def test_a_document_not_committed_and_clean_is_refused_naming_the_problem(
+    repo: Path, state: str, expected: str
+) -> None:
+    rel = "doc/requirements/PRD-zz-probe.md"
+    if state == "untracked":
+        _doc(repo, rel, add=False, commit=False)
+    elif state == "staged-only":
+        _doc(repo, rel, commit=False)
+    else:
+        _doc(repo, rel)
+        (repo / rel).write_text(_IN_REVIEW + "edit\n", encoding="utf-8")
+        if state == "edited-staged":
+            _git(repo, "add", rel)
+    assert cl.approve_ready(["zz-probe"], repo) == (1, [expected])
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        (_IN_REVIEW.replace("In Review", "Draft"), "'Draft'"),
+        (_IN_REVIEW.replace("Status: In Review\n", ""), "'(none)'"),
+        (_IN_REVIEW + "Status: In Review\n", "'In Review, In Review'"),
+    ],
+    ids=["draft", "no-status", "two-status-lines"],
+)
+def test_a_document_whose_status_is_not_exactly_one_in_review_is_refused(repo: Path, text: str, shown: str) -> None:
+    _doc(repo, "doc/requirements/PRD-zz-probe.md", text)
+    expected = f"doc/requirements/PRD-zz-probe.md: Status is {shown}, approve.sh accepts only In Review"
+    assert cl.approve_ready(["zz-probe"], repo) == (1, [expected])
+
+
+def test_a_slug_matching_nothing_is_refused(repo: Path) -> None:
+    _doc(repo, "doc/requirements/PRD-zz-probe.md")
+    code, lines = cl.approve_ready(["zz-probe", "zz-absent"], repo)
+    assert (code, lines) == (1, ["no tracked document matches 'zz-absent' — git add and commit it"])
+
+
+def test_one_dirty_document_of_two_matches_refuses_the_whole_batch(repo: Path) -> None:
+    _doc(repo, "doc/requirements/PRD-zz-probe.md")
+    _doc(repo, "doc/specs/SPEC-zz-probe.md")
+    (repo / "doc/specs/SPEC-zz-probe.md").write_text(_IN_REVIEW + "edit\n", encoding="utf-8")
+    code, lines = cl.approve_ready(["zz-probe"], repo)
+    assert code == 1
+    assert lines == ["doc/specs/SPEC-zz-probe.md: uncommitted changes — commit before handing over approve.sh"]
+
+
+def test_documents_outside_the_approvable_folders_are_not_matched(repo: Path) -> None:
+    """As approve.py: only its document folders count, so a framework page
+    that carries the slug never drags a `Living` status into the batch."""
+    (repo / "doc" / "framework").mkdir()
+    _doc(repo, "doc/framework/zz-probe-notes.md", "Status: Living\n")
+    _doc(repo, "doc/requirements/PRD-zz-probe.md")
+    assert cl.approve_ready(["zz-probe"], repo) == (0, ["scripts/approve.sh zz-probe --by <name>"])
+
+
+def _run_ready(*args: str, cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(_SCRIPT), "--approve-ready", *args],
+        cwd=cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+
+
+def test_the_cli_finds_the_repo_from_the_working_directory(repo: Path) -> None:
+    _doc(repo, "doc/requirements/PRD-zz-probe.md")
+    result = _run_ready("zz-probe", cwd=repo / "doc")
+    assert (result.returncode, result.stdout) == (0, "scripts/approve.sh zz-probe --by <name>\n"), result.stderr
+
+
+def test_the_cli_exits_1_with_one_line_per_problem(repo: Path) -> None:
+    result = _run_ready("zz-a", "zz-b", cwd=repo)
+    assert result.returncode == 1
+    assert result.stdout.splitlines() == [
+        "no tracked document matches 'zz-a' — git add and commit it",
+        "no tracked document matches 'zz-b' — git add and commit it",
+    ]
+
+
+@pytest.mark.parametrize("args", [(), ("",), ("   ",), ("zz-a", " ")], ids=["none", "empty", "whitespace", "one-blank"])
+def test_no_or_blank_slug_exits_2_with_usage(repo: Path, args: tuple[str, ...]) -> None:
+    result = _run_ready(*args, cwd=repo)
+    assert result.returncode == 2
+    assert "usage: coordinator_lint.py --approve-ready <slug>" in result.stderr and "Traceback" not in result.stderr
+
+
+def test_outside_a_git_work_tree_exits_2_with_one_line(tmp_path: Path) -> None:
+    result = _run_ready("zz-probe", cwd=tmp_path)
+    assert result.returncode == 2
+    assert result.stderr.strip().splitlines() == ["coordinator-lint: not inside a git work tree"]
+
+
+def test_git_missing_from_path_exits_2_with_one_line(repo: Path) -> None:
+    result = _run_ready("zz-probe", cwd=repo, env={"PATH": str(repo / "no-such-bin")})
+    assert result.returncode == 2
+    assert result.stderr.strip().splitlines() == ["coordinator-lint: git not found on PATH"]
+
+
+def test_the_default_mode_still_needs_exactly_one_argument(tmp_path: Path) -> None:
+    result = subprocess.run([sys.executable, str(_SCRIPT)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 2 and "usage: coordinator_lint.py <file>|-" in result.stderr

@@ -6,11 +6,15 @@ start when its upstream spec is not `Approved`. That was prose, and prose does
 not fail. This blocks the spawn instead.
 
 **Scope is deliberately narrow.** Only `ai-engineer` and `frontend-engineer` are
-gated on a spec, and only `qa` and `frontend-qa` on a review (below). Gating
-`Explore`, `ba-sa`, `pm`, `Plan`, `reviewer` or `general-purpose` would block
-ordinary investigation, and a guard with false positives gets switched off
-— that is the documented reason Set 1's `guard_bash.py` had to be rewritten from
-substring matching to command-position matching.
+gated on a spec, and only `qa` and `frontend-qa` on a review (below). The seven
+role agents (`pm`, `ba-sa`, both engineers, `reviewer`, both QA types) are checked
+for brief *presence* only: a filled `Tier:` and `Files:` line (SPEC-jarvis-coordinator
+JC-AC6), never whether either is true. `Explore`, `Plan`, `general-purpose` and
+every other type stay ungated: gating them would block ordinary investigation,
+and a guard with false positives gets switched off — that is the documented
+reason Set 1's `guard_bash.py` had to be rewritten from substring matching to
+command-position matching. `jarvis` is refused outright (JC-AC3): it is the main
+thread, and its definition is still listed as a subagent.
 
 **The review gate (SPEC-delegated-autonomy E-AC2, R19, D5 — all work, not opt-in).**
 One explicit rule: a `qa` or `frontend-qa` prompt carries a line
@@ -66,6 +70,15 @@ _SPEC_NAME_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])(SPEC-[A-Za-z0-9._-]+\.md)(
 # A prompt field line, plain, bulleted (`-`, `*`, `1.`) or bold — as coordinator_lint rule 6.
 _FIELD_LINE = r"^[ \t]*(?:(?:[-*]|\d+\.)[ \t]+)?(?:\*\*)?(?:{field})(?:\*\*)?[ \t]*:(?:\*\*)?(.*)$"
 _REVIEW_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Review"), re.MULTILINE)
+
+# SPEC-jarvis-coordinator: the coordinator is never a spawn (JC-AC3), and a brief
+# to a role agent carries a filled `Tier:` and `Files:` line (JC-AC6).
+_COORDINATOR = "jarvis"
+_ROLE_AGENTS = frozenset(
+    {"pm", "ba-sa", "ai-engineer", "frontend-engineer", "reviewer", "qa", "frontend-qa"}
+)
+_TIER_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Tier"), re.MULTILINE)
+_FILES_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Files"), re.MULTILINE)
 _SUBJECT_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Slice|Spec"), re.MULTILINE)
 # `Verdict:` as a plain line, a heading or bold — never inside another line,
 # so a decorated `Status: Done (Verdict: PASS)` is not read as one.
@@ -129,6 +142,26 @@ def _normalise_run_id(value: str) -> str:
     value = unicodedata.normalize("NFKC", value)
     value = "".join(ch for ch in value if not ch.isspace() and unicodedata.category(ch) != "Cf")
     return value.casefold()
+
+
+def _normalise_type(value: str) -> str:
+    """A subagent type as compared with `_COORDINATOR`: the run-ID normalisation."""
+    return _normalise_run_id(value)
+
+
+def _missing_brief_lines(prompt: str) -> list[str]:
+    """The brief lines a role-agent prompt lacks or leaves unfilled, in order.
+    Read after NFKC, so a full-width colon counts; a zero-width character
+    inside the field name does not."""
+    text = unicodedata.normalize("NFKC", prompt)
+    tiers = [v.replace("*", "").strip() for v in _TIER_LINE_PATTERN.findall(text)]
+    files = [v.replace("*", "").strip() for v in _FILES_LINE_PATTERN.findall(text)]
+    missing = []
+    if not any(t[:1] in ("0", "1", "2") and t for t in tiers):
+        missing.append("Tier:")
+    if not any(f and not f.startswith("<") for f in files):
+        missing.append("Files:")
+    return missing
 
 
 def _review_problem(path: Path, spec: str | None) -> str | None:
@@ -222,6 +255,20 @@ def main() -> None:
     tool_input = payload.get("tool_input") or {}
     subagent_type = str(tool_input.get("subagent_type") or "")
     prompt = str(tool_input.get("prompt") or "")
+    if _normalise_type(subagent_type) == _COORDINATOR:
+        _block(
+            "BLOCKED (.claude/hooks/guard_agent_spawn.py, JC-AC3): Jarvis is the main thread, not a role agent "
+            "— do the coordination yourself, or spawn the role agent the work needs."
+        )
+    if subagent_type in _ROLE_AGENTS:
+        missing = _missing_brief_lines(prompt)
+        if missing:
+            _block(
+                f"BLOCKED (.claude/hooks/guard_agent_spawn.py, JC-AC6): the brief to `{subagent_type}` has "
+                f"missing or unfilled: {', '.join(missing)}. Add each on a line of its own:\n"
+                f"  Tier: <0|1|2> — <reason>\n"
+                f"  Files: <paths>"
+            )
     # Before the override and the engineer check: neither may open this gate.
     if subagent_type in _REVIEW_GATED_SUBAGENT_TYPES:
         _check_review(subagent_type, prompt)

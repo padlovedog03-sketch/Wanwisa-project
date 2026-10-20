@@ -50,7 +50,7 @@ def _review(slug: str, verdict: str = "PASS") -> str:
 
 
 def _run_gate(subagent_type: str, prompt: str) -> subprocess.CompletedProcess[str]:
-    payload = json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": subagent_type, "prompt": prompt}})
+    payload = json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": subagent_type, "prompt": prompt + "\nTier: 1 — test\nFiles: x"}})
     return subprocess.run(
         [sys.executable, str(_SPAWN_GATE)], input=payload, capture_output=True, text=True, timeout=30, check=False
     )
