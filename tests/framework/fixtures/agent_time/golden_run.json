@@ -1,0 +1,32 @@
+{
+  "_comment": "Golden timeline, DESIGN-verify-tiers-merge-gate.md section J.4. Times are seconds from t0. Synthetic: no value here comes from a real transcript.",
+  "agent_type": "ai-engineer",
+  "t0": "2026-10-20T00:00:00+00:00",
+  "events": [
+    {"t": 0, "kind": "inbound", "text": "Implement slice 1."},
+    {"t": 60, "kind": "model", "message_id": "m1"},
+    {"t": 70, "kind": "model", "message_id": "m1"},
+    {"t": 70, "kind": "tool_call", "tool_id": "T1", "tool_kind": "shell", "command": "pytest tests/x"},
+    {"t": 190, "kind": "tool_result", "tool_id": "T1"},
+    {"t": 200, "kind": "model", "message_id": "m2"},
+    {"t": 200, "kind": "tool_call", "tool_id": "T2", "tool_kind": "read"},
+    {"t": 205, "kind": "tool_result", "tool_id": "T2"},
+    {"t": 215, "kind": "model", "message_id": "m3"},
+    {"t": 215, "kind": "tool_call", "tool_id": "T3", "tool_kind": "shell", "command": "scripts/verify-full.sh", "background": true},
+    {"t": 216, "kind": "tool_result", "tool_id": "T3", "job_ids": ["b1"]},
+    {"t": 226, "kind": "model", "message_id": "m4"},
+    {"t": 226, "kind": "tool_call", "tool_id": "T4", "tool_kind": "shell", "command": "until grep -q passed out.log; do sleep 10; done"},
+    {"t": 346, "kind": "tool_result", "tool_id": "T4"},
+    {"t": 356, "kind": "model", "message_id": "m5"},
+    {"t": 476, "kind": "notification", "job_ids": ["b1"]},
+    {"t": 486, "kind": "model", "message_id": "m6"},
+    {"t": 1086, "kind": "inbound", "text": "Continue."},
+    {"t": 1096, "kind": "model", "message_id": "m7"},
+    {"t": 1096, "kind": "tool_call", "tool_id": "T5", "tool_kind": "edit"},
+    {"t": 1098, "kind": "tool_result", "tool_id": "T5"},
+    {"t": 1108, "kind": "model", "message_id": "m8"},
+    {"t": 1108, "kind": "tool_call", "tool_id": "T6", "tool_kind": "shell", "command": "make docs"},
+    {"t": 1168, "kind": "tool_result", "tool_id": "T6"},
+    {"t": 1178, "kind": "model", "message_id": "m9"}
+  ]
+}

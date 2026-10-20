@@ -74,6 +74,19 @@ case " $* " in
     ;;
 esac
 
+# The agent-time meter (scripts/agent_time.py) and adapter ก's reader for it
+# are pinned to a golden timeline with planted mutations; a touch to either,
+# their fixtures, or the ADAPTERS.md rows that declare them has to re-earn it.
+case " $* " in
+  *"scripts/agent_time.py"* | *"tests/framework/test_agent_time.py"* | *"tests/framework/fixtures/agent_time"* \
+  | *".claude/meter"* | *"tests/hooks/test_transcript_reader.py"* | *"tests/hooks/fixtures/transcripts"* \
+  | *"tests/framework/test_doc_contracts.py"* | *"doc/framework/ADAPTERS.md"*)
+    echo "== agent-time meter tests"
+    python3 -m pytest tests/framework/test_agent_time.py tests/hooks/test_transcript_reader.py \
+      tests/framework/test_doc_contracts.py -q
+    ;;
+esac
+
 if [ "$todo" -ne 0 ]; then
   echo "FAST VERIFY INCOMPLETE — ${todo} of 2 step(s) not configured; they verified NOTHING."
   echo "Fill LINT and TEST in scripts/verify-fast.sh."
