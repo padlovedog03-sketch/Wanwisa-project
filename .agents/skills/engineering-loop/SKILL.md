@@ -37,6 +37,12 @@ Smallest sequence of steps that reaches the criteria. For multi-step work:
 
 One step at a time. Small steps make failures easy to localize.
 
+**Batch independent calls into one turn.** Reads, searches and commands that do not depend on each other's output go out together in one turn, not one per turn. Changes still go one at a time.
+
+**Do not re-read an unchanged large file.** If you already read it in this run and it has not changed since, use what you read. For a large file, read only the range you need.
+
+The saving is unproven. The trial measures turns and model time before and after (M14), and "no gain" is reported as such.
+
 ### 4. Verify — two tiers, and they are not interchangeable
 
 | | command | when | what it costs |

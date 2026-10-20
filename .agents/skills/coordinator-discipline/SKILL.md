@@ -139,12 +139,19 @@ Slice:        <one deliverable>
 Repo/branch:  <path> / <branch>, HEAD <sha>   [measured this turn]
 Upstream:     <approved doc + registry key> — your scope is <exact criteria>
 Measured this turn, do NOT re-derive: <contracts · names · ids>
+Files:        <exact paths to touch · to read>
+Criteria:     <AC ids in scope>
 Verify with:  <the one selector for this slice>
+REWORK:       <doc/qa/QA-….md> (only when this dispatch is QA rework)
 Pre-existing red, NOT yours: <test ids>
 Do not:       run the full suite · commit · touch <files another slice owns>
 If missing:   stop and name it in the report — never mock, stub or guess around it
 Report:       ≤200 words, the fixed shape, incl. Could not reach / Substituted
 ```
+
+`scripts/coordinator_lint.py` rule 6 flags a `Slice:` brief with no filled `Files:`, `Criteria:` or
+`Verify with:` line: an agent that has to rediscover its files, criteria or tests spends model turns
+doing it. The turn saving is unproven; the trial measures it (M14).
 
 **This sizes a dispatch; it never lowers the rigour inside one.** Proof-of-red, the separate structure
 and visual-token verdicts, and "state every divergence" apply to a 15-minute slice exactly as to a

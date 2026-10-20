@@ -74,7 +74,8 @@ def test_the_coordinator_constitution_document_itself_exists_and_names_the_gramm
         encoding="utf-8"
     )
     for tag in ("CLAIM:", "MEASURED:", "INFERRED:", "RELAYED:", "INSTRUCTION:", "PROVENANCE:",
-                "SELF-REPORT:", "RE-MEASURED:", "CHECKED-AGAINST-APPROVED-DOCS:"):
+                "SELF-REPORT:", "RE-MEASURED:", "CHECKED-AGAINST-APPROVED-DOCS:",
+                "Slice:", "Files:", "Criteria:", "Verify with:"):
         assert tag in doc, f"{tag!r} is checked by the linter but not documented in the constitution"
 
 
@@ -286,3 +287,111 @@ def test_free_prose_with_no_markup_is_invisible_to_the_linter(tmp_path: Path) ->
     assert result.returncode == 1, result.stdout + result.stderr
     assert "SELF-REPORT" in result.stdout
     assert "no known bugs" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Rule 6 (SPEC-verify-tiers-merge-gate I-AC1, R33) — a `Slice:` brief must
+# name its files, its criteria and what to verify with. A brief missing any
+# of these sends the agent to rediscover them, one model turn at a time.
+# ---------------------------------------------------------------------------
+
+_FULL_BRIEF = (
+    "Slice:        rule 6 in the coordinator linter\n"
+    "Files:        scripts/coordinator_lint.py · tests/coordinator/test_coordinator_lint.py\n"
+    "Criteria:     I-AC1, I-AC2\n"
+    "Verify with:  python3 -m pytest tests/coordinator/ -q\n"
+    "Do not:       commit\n"
+)
+
+
+def _without(field: str, brief: str = _FULL_BRIEF) -> str:
+    return "".join(line + "\n" for line in brief.splitlines() if not line.startswith(field))
+
+
+def _rule6(text: str) -> list[cl.Violation]:
+    return [v for v in cl.lint(text) if v.rule == "6"]
+
+
+def test_a_brief_with_files_criteria_and_verify_with_is_clean(tmp_path: Path) -> None:
+    result = _run_cli(_FULL_BRIEF + "\n" + _SELF_REPORT, tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "clean" in result.stdout
+
+
+def test_a_brief_missing_files_is_flagged_and_names_the_field(tmp_path: Path) -> None:
+    result = _run_cli(_without("Files:") + "\n" + _SELF_REPORT, tmp_path)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "rule 6 (line 1): brief has no 'Files:' line" in result.stdout
+
+
+def test_a_brief_missing_criteria_is_flagged_and_names_the_field() -> None:
+    violations = _rule6(_without("Criteria:") + "\n" + _SELF_REPORT)
+
+    assert len(violations) == 1, violations
+    assert "'Criteria:'" in violations[0].reason
+
+
+def test_a_brief_missing_verify_with_is_flagged_and_names_the_field() -> None:
+    violations = _rule6(_without("Verify with:") + "\n" + _SELF_REPORT)
+
+    assert len(violations) == 1, violations
+    assert "'Verify with:'" in violations[0].reason
+
+
+def test_a_brief_missing_all_three_names_each_missing_field() -> None:
+    brief = _without("Files:", _without("Criteria:", _without("Verify with:")))
+
+    reasons = " ".join(v.reason for v in _rule6(brief + "\n" + _SELF_REPORT))
+
+    for field in ("'Files:'", "'Criteria:'", "'Verify with:'"):
+        assert field in reasons, reasons
+
+
+def test_an_empty_field_counts_as_missing_and_does_not_borrow_the_next_line() -> None:
+    """`Files:` with nothing after it must not be satisfied by the `Criteria:`
+    line below it — the empty-field-swallows-the-next-line bug that fe59b02
+    fixed in handback_lint."""
+    brief = _FULL_BRIEF.replace(
+        "Files:        scripts/coordinator_lint.py · tests/coordinator/test_coordinator_lint.py\n",
+        "Files:\n",
+    )
+
+    violations = _rule6(brief + "\n" + _SELF_REPORT)
+
+    assert [("'Files:'" in v.reason) for v in violations] == [True], violations
+
+
+def test_each_slice_block_is_judged_on_its_own_fields() -> None:
+    """The first brief's fields must not satisfy the second brief."""
+    second = _without("Criteria:").replace("Slice:        rule 6", "Slice:        second slice")
+    text = _FULL_BRIEF + "\n" + second + "\n" + _SELF_REPORT
+
+    violations = _rule6(text)
+
+    assert len(violations) == 1, violations
+    assert violations[0].line_no == _FULL_BRIEF.count("\n") + 2
+    assert "'Criteria:'" in violations[0].reason
+
+
+def test_rework_is_optional_in_a_brief() -> None:
+    assert _rule6(_FULL_BRIEF + "\n" + _SELF_REPORT) == []
+    assert _rule6(_FULL_BRIEF + "REWORK:       doc/qa/QA-x.md\n\n" + _SELF_REPORT) == []
+
+
+def test_text_with_no_slice_line_is_not_judged_by_rule_6() -> None:
+    assert _rule6("Files:\nnothing here\n" + _SELF_REPORT) == []
+
+
+def test_the_brief_template_carries_every_field_rule_6_requires() -> None:
+    """I-AC2: the template the coordinator copies must itself pass rule 6,
+    and carry the optional `REWORK:` line ADR-13 uses to mark rework runs."""
+    skill = (_REPO_ROOT / ".agents" / "skills" / "coordinator-discipline" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    start = skill.index("\nSlice:") + 1
+    template = skill[start : skill.index("```", start)]
+
+    assert _rule6(template + "\n" + _SELF_REPORT) == [], template
+    assert "\nREWORK:" in template, template

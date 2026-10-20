@@ -263,8 +263,45 @@ def check_self_report(text: str) -> list[Violation]:
     return violations
 
 
+#: Rule 6: every field a `Slice:` brief must fill, with what to put there.
+#: `REWORK:` is optional (only on QA rework) and so is not listed.
+_BRIEF_FIELDS = (
+    ("Files:", "name the exact files to touch or read"),
+    ("Criteria:", "name the acceptance criteria in scope"),
+    ("Verify with:", "name the tests or tier to run"),
+)
+
+
+def check_briefs(text: str) -> list[Violation]:
+    """Rule 6: a brief block — from a `Slice:` line to the next one or the
+    end of the text — must carry a filled `Files:`, `Criteria:` and
+    `Verify with:` line. Checked line by line, so an empty field never
+    borrows the line below it."""
+    lines = text.splitlines()
+    starts = [i for i, line in enumerate(lines) if line.startswith("Slice:")]
+    violations: list[Violation] = []
+    for n, start in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        block = lines[start:end]
+        for field, hint in _BRIEF_FIELDS:
+            if not any(line.startswith(field) and line[len(field) :].strip() for line in block):
+                violations.append(
+                    Violation(
+                        rule="6",
+                        line_no=start + 1,
+                        reason=f"brief has no {field!r} line — {hint}",
+                    )
+                )
+    return violations
+
+
 def lint(text: str, base_dir: Path = _REPO_ROOT) -> list[Violation]:
-    return check_claims(text) + check_instructions(text, base_dir) + check_self_report(text)
+    return (
+        check_claims(text)
+        + check_instructions(text, base_dir)
+        + check_self_report(text)
+        + check_briefs(text)
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
