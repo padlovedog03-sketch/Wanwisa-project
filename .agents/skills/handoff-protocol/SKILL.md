@@ -61,3 +61,34 @@ Fields 5-6 exist because a workaround done in silence reads exactly like a clean
 (`doc/framework/WHY.md` §2). If something you need is missing, the default is **stop and name it** —
 never substitute it silently. `none` is a valid answer; an empty or missing field is not. The
 coordinator checks the shape with `python3 scripts/handback_lint.py -` (presence only, never truth).
+
+**Engineers add a `Self-check:` block** (`ai-engineer`, `frontend-engineer`; R30): one line per
+acceptance criterion in the spec, ending at the first blank line.
+
+```
+Self-check:
+- AC1: pytest tests/test_x.py::test_y → 1 passed
+- AC2: scripts/verify-full.sh → EXIT GATE GREEN
+```
+
+Every AC of your increment gets a line with a command and a result; an unfinished one gets `not done`
+as its result, which the lint lists as open, never as met. Check it with
+`python3 scripts/handback_lint.py --spec <spec> --only <prefix> -`, where `<prefix>` is your increment's
+AC-id prefix (`H-` for `H-AC1`, `AC-` for `AC-AC1`; repeat `--only` for more than one). It names each
+of those ACs with no line, no command or no result. Without `--only` every AC in the spec is required,
+and a prefix that matches no AC exits 2. Again presence only: the lint cannot tell whether the command
+was really run.
+
+## Rework dispatch
+
+When QA returns FAIL and the engineer is sent back, that is a **new dispatch**, and its first message
+carries the QA report on a line of its own:
+
+```
+REWORK: doc/qa/QA-<feature-slug>.md
+```
+
+The meter (`scripts/agent_time.py --rework`) counts a run as rework only when the **first message** of
+that run has a line starting `REWORK:` (ADR-13). A correction sent as a follow-up message into an
+engineer run that is already going is never counted, so a rework sent that way disappears from the
+rework share.

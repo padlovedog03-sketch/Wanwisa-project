@@ -23,9 +23,19 @@ Date: YYYY-MM-DD
 
 ## Defects (if FAIL)
 
-| Severity | Description | Where | Suggested owner |
-|---|---|---|---|
-| High/Med/Low | <what breaks, how to reproduce> | src/<PACKAGE>/x.py:42 | ai-engineer |
+| Severity | Description | Where | Suggested owner | Rework cause |
+|---|---|---|---|---|
+| High/Med/Low | <what breaks, how to reproduce> | src/<PACKAGE>/x.py:42 | ai-engineer | <one cause from the line below> |
+
+Rework causes (exactly one per defect): `missed-ac` · `regression` · `spec-defect` · `test-gap` · `env-flaky`
+
+<`missed-ac`: an acceptance criterion was not met. `regression`: something that
+worked before is broken. `spec-defect`: the code does what the spec says and the
+spec is wrong. `test-gap`: the behaviour is wrong and no test caught it.
+`env-flaky`: the failure comes from the environment or a non-deterministic test,
+not from the change. If two seem to fit, pick the one the fix will address. A
+FAIL report dated on or after 2026-10-20 with a missing, doubled or unknown cause
+fails `tests/framework/test_doc_contracts.py`.>
 
 ## Edge Cases Probed
 

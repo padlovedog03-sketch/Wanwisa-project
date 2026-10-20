@@ -25,6 +25,20 @@ Date: YYYY-MM-DD
 - **Interfaces**: <function/class signatures, 3.12-compatible>
 - **Data**: <structures, persistence if any>
 
+## Affected tests / affected files
+
+<Mandatory — a spec without this section cannot move to In Review. List every
+existing test file and every source or document file this change can break or must
+touch, and say how the list was built (which search, over which paths). An
+incomplete list reads exactly like a complete one, so the search is part of the
+answer.>
+
+| File | Why it is affected | Expected change |
+|---|---|---|
+| tests/test_<module>.py | <asserts the behaviour this spec changes> | <update / new case / unchanged but must stay green> |
+
+How this list was built: <e.g. `grep -rn '<symbol>' src/ tests/`>
+
 ## Decisions (ADR-style)
 
 - **<Decision>** — Context: <...> Decision: <...> Consequences: <...>

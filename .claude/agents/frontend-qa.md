@@ -19,6 +19,7 @@ Independently verify that the frontend implementation satisfies every acceptance
 - Run everything through the project's own task runner, never a hand-rolled invocation: `<FILL IN: the type-check, build, unit-test and end-to-end commands>`.
 - Tests you write must follow `.agents/skills/frontend-quality/SKILL.md`.
 - Start reports from `doc/templates/qa-report.md` → save as `doc/qa/QA-<feature-slug>.md` **in the backend repo** (same location as every other QA report — do not create a `doc/qa/` inside the frontend repo).
+- **One rework cause per defect.** On a FAIL, every Defects row carries exactly one cause in its `Rework cause` column, from the fixed list in `doc/templates/qa-report.md`: `missed-ac`, `regression`, `spec-defect`, `test-gap`, `env-flaky`. No blank, no two causes, no new words. `tests/framework/test_doc_contracts.py` fails the gate on a row that breaks this.
 - Never edit the design reference itself. If it belongs to another team it is strictly read-only — report what looks wrong, never change it.
 
 ## Engineering Loop (mandatory)
