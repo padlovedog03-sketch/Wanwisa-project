@@ -319,6 +319,35 @@ def test_a_decorated_or_respelled_not_done_is_still_open(result: str) -> None:
     assert problems == ["self-check for H-AC1 is not done — open AC"]
 
 
+@pytest.mark.parametrize(
+    "result",
+    [
+        "not​done",
+        "not‌done",
+        "not⁠done",
+        "not﻿done",
+        "not­done",
+        "ｎｏｔ ｄｏｎｅ",
+        "nоt done",
+        "not dоne",
+    ],
+    ids=["zero-width-space", "zero-width-non-joiner", "word-joiner", "bom", "soft-hyphen", "full-width", "cyrillic-o-in-not", "cyrillic-o-in-done"],
+)
+def test_an_invisible_or_look_alike_not_done_is_still_open(result: str) -> None:
+    """Fails closed: invisible characters, full-width forms and a non-ASCII look-alike letter still read as open."""
+    problems = hl.lint_self_check(f"Self-check:\n- H-AC1: pytest a → {result}\n", ["H-AC1"])
+    assert problems == ["self-check for H-AC1 is not done — open AC"]
+
+
+@pytest.mark.parametrize(
+    "result",
+    ["เสร็จแล้ว done, 3 passed", "done, 3 passed เสร็จแล้ว", "ผ่าน 3 passed"],
+    ids=["thai-before-done", "thai-after-done", "thai-only-letters"],
+)
+def test_thai_text_beside_a_met_result_is_not_mistaken_for_a_look_alike(result: str) -> None:
+    assert hl.lint_self_check(f"Self-check:\n- H-AC1: pytest a → {result}\n", ["H-AC1"]) == []
+
+
 def test_a_met_result_mentioning_done_alone_is_not_open() -> None:
     assert hl.lint_self_check("Self-check:\n- H-AC1: pytest a → done, 3 passed\n", ["H-AC1"]) == []
 

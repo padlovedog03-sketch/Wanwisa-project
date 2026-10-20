@@ -23,7 +23,7 @@ missing field is the failure.
 column. The block runs from the `Self-check:` line to the first blank line.
 Again presence only: it cannot tell whether the command was really run.
 A line whose result says `not done` is an open AC: listed, and never counted as met.
-Markup and spacing are ignored (`` `not done` ``, `**not done**`, `(not done)`, `✗ not done`,
+Markup, spacing, invisible characters and full-width forms are ignored (`` `not done` ``, `**not done**`, `(not done)`, `✗ not done`,
 `not-done`, `notdone`), and the phrase counts anywhere in the result. If any line for an AC
 is not done the AC is open, and more than one line for an AC is itself a problem.
 
@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 #: The fields every handback must carry, in the handoff-protocol's wording.
@@ -82,13 +83,25 @@ _SPEC_AC_RE = re.compile(r"^\|\s*(" + _AC_ID + r")\s*\|", re.MULTILINE)
 _SELF_CHECK_LINE_RE = re.compile(r"^[ \t]*[-*]?[ \t]*(" + _AC_ID + r")[ \t]*:[ \t]*(.*?)[ \t]*(?:→|->)[ \t]*(.*?)[ \t]*$")
 
 
-#: Markdown and decoration stripped before judging a result, with all whitespace and hyphens.
-_RESULT_NOISE_RE = re.compile(r"[`*_()\[\]✗✘❌\s-]+")
-
-
 def _is_not_done(result: str) -> bool:
-    """True when the result says `not done` in any markup or spacing. Fails closed: anywhere counts."""
-    return "notdone" in _RESULT_NOISE_RE.sub("", result.lower())
+    """True when the result says `not done` in any markup, spacing or encoding. Fails closed.
+
+    NFKC folds full-width forms; then everything that is not a letter is dropped
+    (markup, punctuation, digits, spaces, and invisible format characters such as
+    U+200B and the soft hyphen), and `notdone` is searched anywhere. NFKC does not
+    fold look-alikes such as Cyrillic `о`, so a non-ASCII letter also stands in for
+    any letter of `notdone`, as long as `not` and `done` each keep at least one of
+    their own ASCII letters — otherwise Thai text before `done` would read as open.
+    Known limit: a met result whose letters happen to run `...notdone...` across
+    words (e.g. "cannot do new") reads as open; that errs closed.
+    """
+    letters = "".join(c for c in unicodedata.normalize("NFKC", result).lower() if c.isalpha())
+    for i in range(len(letters) - len("notdone") + 1):
+        window = letters[i : i + len("notdone")]
+        same = [c == want for c, want in zip(window, "notdone")]
+        if all(ok or not c.isascii() for ok, c in zip(same, window)) and any(same[:3]) and any(same[3:]):
+            return True
+    return False
 
 
 def spec_ac_ids(spec_text: str) -> list[str]:
