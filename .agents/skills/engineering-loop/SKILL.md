@@ -78,6 +78,10 @@ End with evidence:
 
 ---
 
+## Waiting on background work
+
+**Never poll.** When you start work in the background (a long test run, a build, another agent), end your turn or do independent work until the completion notification arrives. Do not write a loop that checks and sleeps, such as `until grep -q passed out.log; do sleep 10; done`: every wake-up costs a turn and model time, and the runtime already reports the end. Where the adapter has no completion notification, use the substitute `doc/framework/ADAPTERS.md` names for it (a foreground run with the tool's own timeout). On an adapter that enforces rule R26, a loop that is genuinely not a wait runs as `ALLOW_POLL=1; <loop>`, so the choice is on the record.
+
 ## Failure modes this project has already hit
 
 Each of these cost real time on this codebase. They are written as checkable conditions, not advice — answer each one before reporting.

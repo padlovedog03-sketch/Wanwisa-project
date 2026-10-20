@@ -223,21 +223,69 @@ def _block(message: str) -> None:
     sys.exit(2)
 
 
-def _has_head_override(command: str) -> bool:
-    """True only when `ALLOW_DESTRUCTIVE=1` is an env assignment on the first
-    segment, the position a shell would actually apply it.
+def _has_head_override(command: str, assignment: str = _OVERRIDE_ASSIGNMENT) -> bool:
+    """True only when `assignment` (default `ALLOW_DESTRUCTIVE=1`) is an env
+    assignment on the first segment, the position a shell would actually apply it.
 
-    Scoped deliberately: it waives the destructive-discard rule (A1') and nothing
+    Scoped deliberately: each override waives its own rule and nothing
     else. An escape hatch that silences every rule at once is not an escape hatch,
     it is an off switch.
     """
     first = _SEGMENT_SPLIT_PATTERN.split(command)[0]
     for token in first.split():
-        if token == _OVERRIDE_ASSIGNMENT:
+        if token == assignment:
             return True
         if not _ENV_ASSIGNMENT_PATTERN.match(token):
             return False
     return False
+
+
+# ---------------------------------------------------------------------------
+# RULE R26 — no hand-written polling loops (SPEC-verify-tiers-merge-gate, G)
+#
+# `until grep -q passed out.log; do sleep 10; done` spends the agent's time and a
+# model turn per wake-up on work the harness will report when it ends. The rule
+# fires on a `while`/`until`/`for` loop whose body (or condition) runs `sleep`.
+# A loop inside `bash -c "…"`, a script file, a heredoc fed to a shell, or another
+# language's sleep loop is NOT seen — declared limits in doc/framework/ADAPTERS.md.
+_POLL_OVERRIDE = "ALLOW_POLL=1"
+_LOOP_KEYWORDS = frozenset({"while", "until", "for"})
+# Tokens that may precede a segment's real command word.
+_LEAD_KEYWORDS = frozenset({"do", "then", "else", "elif", "if", "{", "!"})
+
+
+def _command_index(tokens: list[str], start: int = 0) -> int:
+    """Index of the first token from `start` past keywords, env assignments and wrappers."""
+    for index in range(start, len(tokens)):
+        token = tokens[index]
+        if not (
+            token in _LEAD_KEYWORDS
+            or token in _TRANSPARENT_WRAPPERS
+            or _ENV_ASSIGNMENT_PATTERN.match(token)
+        ):
+            return index
+    return len(tokens)
+
+
+def _polling_loop_reason(segments: list[list[str]]) -> str | None:
+    """Why these segments are a hand-written polling loop, or None.
+
+    Tracks loop depth so a `sleep` after a finished loop (`for …; done; sleep 2`)
+    is not mistaken for one inside it.
+    """
+    depth = 0
+    for tokens in segments:
+        index = _command_index(tokens)
+        while index < len(tokens) and tokens[index] in _LOOP_KEYWORDS:
+            depth += 1
+            index = _command_index(tokens, index + 1)
+        word = _program_name(tokens[index]) if index < len(tokens) else ""
+        if word == "done":
+            depth = max(depth - 1, 0)
+        elif word == "sleep" and depth > 0:
+            return "a hand-written polling loop (loop + sleep)"
+    return None
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -277,6 +325,20 @@ def main() -> None:
                 f"prefixed with `ALLOW_DESTRUCTIVE=1 ` so the choice is on "
                 f"the record."
             )
+
+    # R26 has its own override; `ALLOW_DESTRUCTIVE=1` does not waive it.
+    poll_reason = _polling_loop_reason(segments)
+    if poll_reason and not _has_head_override(command, _POLL_OVERRIDE):
+        _block(
+            f"BLOCKED (.claude/hooks/guard_bash.py, rule R26): {poll_reason}. "
+            f"Do not poll.\n"
+            f"If you launched the work in the background, end your turn or do "
+            f"independent work until the completion notification arrives. See "
+            f".agents/skills/engineering-loop/SKILL.md, \"Waiting on background "
+            f"work\".\n"
+            f"If this loop is genuinely not a wait on background work, re-run it "
+            f"as `ALLOW_POLL=1; <loop>` so the choice is on the record."
+        )
 
     for tokens in segments:
         if _direct_server_launch(tokens) and _LAUNCHER not in command:
