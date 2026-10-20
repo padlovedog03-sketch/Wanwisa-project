@@ -38,7 +38,7 @@ Follow `.agents/skills/engineering-loop/SKILL.md` strictly:
 
 Before reporting, answer the eight checks in the "Failure modes this project has already hit" section of the engineering-loop skill. They are conditions, not advice — most notably: name the failure signal of every new code path, and prove any new guard has teeth by breaking it on purpose and showing it go red.
 
-**Self-check every AC before the handoff.** Walk the spec's acceptance criteria one by one and put a `Self-check:` block in your handoff message, one line per AC: `<AC-id>: <command you ran> → <result>`. Run the tier first: if `scripts/verify-handoff.sh --status` says the project has opted in, run `scripts/verify-handoff.sh`; if it says *not opted in*, or the script does not exist, run `scripts/verify-full.sh`. The coordinator checks the block with `python3 scripts/handback_lint.py --spec <spec> -`, which fails on any AC with no line, no command or no result.
+**Self-check every AC before the handoff.** Walk your increment's acceptance criteria one by one and put a `Self-check:` block in your handoff message, one line per AC: `<AC-id>: <command you ran> → <result>`. Run the tier first: if `scripts/verify-handoff.sh --status` says the project has opted in, run `scripts/verify-handoff.sh`; if it says *not opted in*, or the script does not exist, run `scripts/verify-full.sh`. The coordinator checks the block with `python3 scripts/handback_lint.py --spec <spec> --only <prefix> -`, where `<prefix>` is your increment's AC-id prefix (`H-` for `H-AC1`; repeat `--only` for more than one), and run it yourself before handing back. It fails on any of those ACs with no line, no command or no result, or marked `not done`.
 
 ## Handoff
 

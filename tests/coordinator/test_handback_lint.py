@@ -193,3 +193,115 @@ def test_spec_mode_still_checks_the_two_required_fields(tmp_path: Path) -> None:
     result = _run_spec(tmp_path, _SPEC, handback)
     assert result.returncode == 1
     assert "`Could not reach:` is missing" in result.stdout
+
+
+# ---- H rework (owner, 2026-10-20): `--only <prefix>` limits the ACs to one increment ----
+
+_MULTI_SPEC = """\
+| # | Maps to | Given / When / Then | Test file |
+|---|---|---|---|
+| AC-AC1 | R1 | x | t |
+| AC-AC2 | R1 | x | t |
+| H-AC1 | R30 | x | t |
+| H-AC2 | R30 | x | t |
+| J2-AC1 | R41 | x | t |
+"""
+
+_H_ONLY = "Self-check:\n- H-AC1: pytest a → 1 passed\n- H-AC2: pytest b → 1 passed\n"
+
+
+def _run_only(tmp_path: Path, handback: str, *prefixes: str) -> subprocess.CompletedProcess[str]:
+    spec_path = tmp_path / "SPEC-multi.md"
+    spec_path.write_text(_MULTI_SPEC, encoding="utf-8")
+    only = [arg for prefix in prefixes for arg in ("--only", prefix)]
+    return subprocess.run(
+        [sys.executable, str(_SCRIPT), "--spec", str(spec_path), *only, "-"],
+        input=handback,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_spec_ids_with_a_digit_in_the_increment_prefix_are_read() -> None:
+    """`J2-AC1` was invisible to the id grammar, so the am1 spec had "no AC rows"."""
+    assert hl.spec_ac_ids(_MULTI_SPEC) == ["AC-AC1", "AC-AC2", "H-AC1", "H-AC2", "J2-AC1"]
+
+
+def test_only_h_requires_h_acs_only(tmp_path: Path) -> None:
+    result = _run_only(tmp_path, _CLEAN + _H_ONLY, "H-")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "all 2 AC(s) matching H-" in result.stdout
+
+
+def test_only_h_still_flags_a_missing_h_ac_and_nothing_else(tmp_path: Path) -> None:
+    handback = _CLEAN + "Self-check:\n- H-AC1: pytest a → 1 passed\n"
+    result = _run_only(tmp_path, handback, "H-")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "self-check missing for H-AC2" in result.stdout
+    assert "AC-AC1" not in result.stdout and "J2-AC1" not in result.stdout
+
+
+def test_only_ac_dash_is_an_exact_prefix_not_a_substring(tmp_path: Path) -> None:
+    """`--only AC-` must not catch `H-AC…` or `J2-AC…`, which contain `AC` but do not start with `AC-`."""
+    handback = _CLEAN + "Self-check:\n- AC-AC1: pytest a → 1 passed\n"
+    result = _run_only(tmp_path, handback, "AC-")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "self-check missing for AC-AC2" in result.stdout
+    assert "H-AC" not in result.stdout and "J2-AC" not in result.stdout
+
+
+def test_only_j2_finds_the_j2_row(tmp_path: Path) -> None:
+    """Proves the `AC-` exclusion above is against a visible J2 row, not an unparsed one."""
+    result = _run_only(tmp_path, _CLEAN + "Self-check:\n", "J2-")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "self-check missing for J2-AC1" in result.stdout
+
+
+def test_repeated_only_is_a_union(tmp_path: Path) -> None:
+    handback = _CLEAN + _H_ONLY + "- J2-AC1: pytest c → 1 passed\n"
+    result = _run_only(tmp_path, handback, "H-", "J2-")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "all 3 AC(s) matching H-, J2-" in result.stdout
+
+
+def test_an_unknown_prefix_exits_2_and_names_it(tmp_path: Path) -> None:
+    result = _run_only(tmp_path, _CLEAN + _H_ONLY, "X-")
+    assert result.returncode == 2, result.stdout
+    assert "--only X- matches no AC" in result.stderr
+
+
+def test_one_unknown_prefix_among_good_ones_still_exits_2(tmp_path: Path) -> None:
+    """A typo in the second prefix must not be swallowed by the first one matching."""
+    result = _run_only(tmp_path, _CLEAN + _H_ONLY, "H-", "XY-")
+    assert result.returncode == 2, result.stdout
+    assert "--only XY- matches no AC" in result.stderr
+
+
+def test_only_without_spec_is_a_usage_error() -> None:
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPT), "--only", "H-", "-"], input=_CLEAN, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 2, result.stdout
+    assert "--only needs --spec" in result.stderr
+
+
+def test_not_done_is_an_open_ac_never_met(tmp_path: Path) -> None:
+    handback = _CLEAN + "Self-check:\n- H-AC1: pytest a → 1 passed\n- H-AC2: pytest b → not done\n"
+    result = _run_only(tmp_path, handback, "H-")
+    assert result.returncode == 1, result.stdout
+    assert "H-AC2 is not done — open AC" in result.stdout
+    assert "present for all" not in result.stdout
+
+
+def test_not_done_with_no_command_reads_as_open_not_malformed() -> None:
+    problems = hl.lint_self_check("Self-check:\n- H-AC1: → Not done\n", ["H-AC1"])
+    assert problems == ["self-check for H-AC1 is not done — open AC"]
+
+
+def test_only_matches_from_the_start_of_the_id_not_anywhere_in_it(tmp_path: Path) -> None:
+    """`--only AC` is inside every id here; only `AC-AC…` starts with it."""
+    handback = _CLEAN + "Self-check:\n- AC-AC1: pytest a → 1 passed\n- AC-AC2: pytest b → 1 passed\n"
+    result = _run_only(tmp_path, handback, "AC")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "all 2 AC(s) matching AC" in result.stdout

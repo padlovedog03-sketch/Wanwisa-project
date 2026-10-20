@@ -71,9 +71,13 @@ Self-check:
 - AC2: scripts/verify-full.sh → EXIT GATE GREEN
 ```
 
-Every AC in the spec's table gets a line with a command and a result. The coordinator checks it with
-`python3 scripts/handback_lint.py --spec <spec> -`, which names each AC with no line, no command or no
-result. Again presence only: the lint cannot tell whether the command was really run.
+Every AC of your increment gets a line with a command and a result; an unfinished one gets `not done`
+as its result, which the lint lists as open, never as met. Check it with
+`python3 scripts/handback_lint.py --spec <spec> --only <prefix> -`, where `<prefix>` is your increment's
+AC-id prefix (`H-` for `H-AC1`, `AC-` for `AC-AC1`; repeat `--only` for more than one). It names each
+of those ACs with no line, no command or no result. Without `--only` every AC in the spec is required,
+and a prefix that matches no AC exits 2. Again presence only: the lint cannot tell whether the command
+was really run.
 
 ## Rework dispatch
 

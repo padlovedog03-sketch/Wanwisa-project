@@ -22,15 +22,22 @@ missing field is the failure.
 `<AC-id>: <command> → <result>` for every AC id in the spec's first table
 column. The block runs from the `Self-check:` line to the first blank line.
 Again presence only: it cannot tell whether the command was really run.
+A line whose result is `not done` is an open AC: listed, and never counted as met.
+
+`--only <prefix>` (repeatable) limits the required ACs to those whose id starts
+with the prefix, so a one-increment handoff on a multi-increment spec is checked
+against its own ACs only. A prefix that matches no AC is a usage error (exit 2).
 
 Usage:
     python3 scripts/handback_lint.py <file>
     python3 scripts/handback_lint.py -            # read stdin
     python3 scripts/handback_lint.py --spec doc/specs/SPEC-x.md -
+    python3 scripts/handback_lint.py --spec doc/specs/SPEC-x.md --only H- -
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -61,12 +68,15 @@ def lint(text: str) -> list[str]:
     return problems
 
 
-#: An AC id in a spec's first table column: `AC1`, `H-AC2`, `AC-AC14`.
-_SPEC_AC_RE = re.compile(r"^\|\s*([A-Z]*-?AC\d+)\s*\|", re.MULTILINE)
+#: An AC id: `AC1`, `H-AC2`, `AC-AC14`, `J2-AC1` (an increment prefix may carry a digit).
+_AC_ID = r"(?:[A-Z][A-Z0-9]*-)?AC\d+"
+
+#: An AC id in a spec's first table column.
+_SPEC_AC_RE = re.compile(r"^\|\s*(" + _AC_ID + r")\s*\|", re.MULTILINE)
 
 #: `- AC1: <command> → <result>`. `[ \t]*`, never `\s*`: an empty result must
 #: not swallow the next line as its value (the fe59b02 bug).
-_SELF_CHECK_LINE_RE = re.compile(r"^[ \t]*[-*]?[ \t]*([A-Z]*-?AC\d+)[ \t]*:[ \t]*(.*?)[ \t]*(?:→|->)[ \t]*(.*?)[ \t]*$")
+_SELF_CHECK_LINE_RE = re.compile(r"^[ \t]*[-*]?[ \t]*(" + _AC_ID + r")[ \t]*:[ \t]*(.*?)[ \t]*(?:→|->)[ \t]*(.*?)[ \t]*$")
 
 
 def spec_ac_ids(spec_text: str) -> list[str]:
@@ -91,6 +101,8 @@ def lint_self_check(text: str, ac_ids: list[str]) -> list[str]:
     for ac in ac_ids:
         if ac not in found:
             problems.append(f"self-check missing for {ac}")
+        elif found[ac][1].lower().startswith("not done"):
+            problems.append(f"self-check for {ac} is not done — open AC")
         elif not found[ac][0]:
             problems.append(f"self-check for {ac} has no command — name what you ran")
         elif not found[ac][1]:
@@ -99,25 +111,34 @@ def lint_self_check(text: str, ac_ids: list[str]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
+    parser = argparse.ArgumentParser(prog="handback_lint.py")
+    parser.add_argument("--spec", help="check the Self-check block against this spec's AC ids")
+    parser.add_argument("--only", action="append", metavar="PREFIX", help="require only AC ids starting with PREFIX")
+    parser.add_argument("handback", help="handback file, or - for stdin")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    if args.only and not args.spec:
+        parser.error("--only needs --spec")
     ac_ids: list[str] | None = None
-    if len(argv) == 3 and argv[0] == "--spec":
-        ac_ids = spec_ac_ids(Path(argv[1]).read_text(encoding="utf-8"))
+    if args.spec:
+        ac_ids = spec_ac_ids(Path(args.spec).read_text(encoding="utf-8"))
         if not ac_ids:
-            print(f"handback-lint: {argv[1]} has no AC rows (`| AC1 |` …) — nothing to check against", file=sys.stderr)
+            print(f"handback-lint: {args.spec} has no AC rows (`| AC1 |` …) — nothing to check against", file=sys.stderr)
             return 2
-        argv = argv[2:]
-    if len(argv) != 1:
-        print("usage: handback_lint.py [--spec <spec>] <file>|-", file=sys.stderr)
-        return 2
-    text = sys.stdin.read() if argv[0] == "-" else Path(argv[0]).read_text(encoding="utf-8")
+        for prefix in args.only or []:
+            if not any(ac.startswith(prefix) for ac in ac_ids):
+                print(f"handback-lint: --only {prefix} matches no AC in {args.spec}", file=sys.stderr)
+                return 2
+        if args.only:
+            ac_ids = [ac for ac in ac_ids if ac.startswith(tuple(args.only))]
+    text = sys.stdin.read() if args.handback == "-" else Path(args.handback).read_text(encoding="utf-8")
 
     problems = lint(text)
     if ac_ids is not None:
         problems += lint_self_check(text, ac_ids)
     if not problems:
         if ac_ids is not None:
-            print(f"handback-lint: self-check lines present for all {len(ac_ids)} AC(s).")
+            matching = f" matching {', '.join(args.only)}" if args.only else ""
+            print(f"handback-lint: self-check lines present for all {len(ac_ids)} AC(s){matching}.")
         print("handback-lint: clean — `Could not reach:` and `Substituted:` both filled.")
         print("LIMIT: presence only, never truth. Read the diff.")
         return 0
