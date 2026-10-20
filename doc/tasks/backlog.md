@@ -64,5 +64,6 @@ VT = [PRD-verify-tiers-merge-gate](../requirements/PRD-verify-tiers-merge-gate.m
 | DA Part E, second half (E-AC5, E-AC6): new tests must prove they catch bugs; depth matched to the task | DA | — |
 | DA Part A, rest: A-AC1, A-AC2, A-AC4 (d) and (e), A-AC6 (a), (b) and (d) (the standing mandate itself) | DA | Task orders do not need a standing mandate. |
 | DA Part G, rest: G-AC1 exceptions (a) mandate and (c) absence | DA | They follow when A or K is un-parked. |
+| Pre-commit refuses a commit whose staged tree's newest `.verify` record is RED | — | Mechanism candidate for doc/memory/gate-exit-code-before-commit.md (coordinator piped verify-full into grep and committed e6b4daa on RED). Candidate for JC Inc 1 if the owner wants it. |
 
 **Not tracked here.** These follow-ups belong to the downstream project sessions (doc/memory/project-reds-belong-to-project-session.md): triage the pilot project's 30 red tests; render each PDF once; set the worker count; set up the runner and sharding; move structure-watching tests to lint; remove change-detector tests; split the layout model.
