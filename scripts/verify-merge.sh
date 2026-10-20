@@ -31,6 +31,9 @@
 #
 # LIMIT: a candidate that changes the gate code legitimately is judged by the
 # base's old copy; a `note:` line and the merge record say so.
+# LIMIT: the base ref is trusted. A base the agent can write (a local `main`,
+# or VERIFY_MERGE_BASE_REF=HEAD) makes base == candidate, and forged gate code
+# is judged by itself again; only a protected base closes this.
 # LIMIT: this script itself runs from the caller's checkout; only a copy from
 # the runner's trusted checkout of the base is a gate.
 # LIMIT: VERIFY_RUNNER_ID and VERIFY_MERGE_BASE_REF come from the environment,
