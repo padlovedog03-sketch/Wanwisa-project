@@ -61,3 +61,33 @@ def test_adapter_a_lists_the_meter_folder_among_its_files() -> None:
 def test_adapter_b_declares_the_meter_unsupported() -> None:
     """J-AC10 (R38, R27): adapter ข has the same row, saying `unsupported`."""
     assert "unsupported" in _meter_row("ข")
+
+_ENGINEERING_LOOP = _REPO_ROOT / ".agents" / "skills" / "engineering-loop" / "SKILL.md"
+
+
+# ---------------------------------------------------------------------------
+# Increment I (I-AC3, R34, R35, R36) — fewer model turns.
+# ---------------------------------------------------------------------------
+
+
+def _loop() -> str:
+    return _ENGINEERING_LOOP.read_text(encoding="utf-8")
+
+
+def test_engineering_loop_tells_agents_to_batch_independent_calls_into_one_turn() -> None:
+    """R34."""
+    assert "**Batch independent calls into one turn.**" in _loop()
+
+
+def test_engineering_loop_tells_agents_not_to_re_read_an_unchanged_large_file() -> None:
+    """R35: both halves — no re-read of an unchanged file, and read only the range needed."""
+    text = _loop()
+    assert "**Do not re-read an unchanged large file.**" in text
+    assert "read only the range you need" in text
+
+
+def test_engineering_loop_labels_the_turn_saving_as_unproven() -> None:
+    """R36: the saving is stated as unproven and measured, never promised."""
+    text = _loop()
+    assert "The saving is unproven" in text
+    assert "M14" in text
