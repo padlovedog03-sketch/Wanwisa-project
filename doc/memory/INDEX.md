@@ -4,3 +4,4 @@
 กฎการเขียน: `doc/memory/README.md` · ตรวจด้วย `python3 scripts/memory_lint.py`
 
 - [ความจำอยู่ในคลังโค้ด](memory-lives-in-the-repo.md) — ไม่อยู่ในโฟลเดอร์ส่วนตัวของเครื่องมือใด
+- [เทสต์แดงของโปรเจกต์ เป็นงานของรอบฝั่งโปรเจกต์](project-reds-belong-to-project-session.md) — รอบในคลังเฟรมเวิร์กแก้แค่แม่แบบ ไม่แก้โปรเจกต์ปลายทาง
