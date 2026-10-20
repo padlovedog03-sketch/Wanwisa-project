@@ -10,7 +10,9 @@ in the normal loop. stdlib only, Python 3.9+.
                 files included) through a throwaway index; `null` outside git
   finalize      read the run directory, count the JUnit reports this run wrote,
                 print the summary lines, write record.json, end with VERDICT=<v>
-                (full tier) or the banner itself (fast tier)
+                (full tier) or the banner itself (fast and handoff tiers)
+  diff-paths    the handoff tier's selection: the diff against a base, plus the
+                paths the agent named (scripts/verify-handoff.sh)
 
 Why it exists: a gate that prints GREEN over a run that executed nothing, or
 executed a filtered subset, is the failure this framework was built to stop.
@@ -516,11 +518,12 @@ def _now() -> str:
 
 
 def _prune(runs: Path, keep: Path) -> None:
-    """Fast and full runs each keep their own KEEP_RUNS slots, so a day of
-    inner-loop runs never evicts the full record a handoff points at."""
+    """Fast, handoff and full runs each keep their own KEEP_RUNS slots, so a day
+    of inner-loop or handoff runs never evicts the full record a handoff points at."""
     dirs = sorted((p for p in runs.iterdir() if p.is_dir()), key=lambda p: p.name)
-    for fast in (True, False):
-        tier = [p for p in dirs if p.name.endswith("-fast") == fast]
+    bucket = lambda p: next((s for s in ("-fast", "-handoff") if p.name.endswith(s)), "")  # noqa: E731
+    for suffix in ("-fast", "-handoff", ""):
+        tier = [p for p in dirs if bucket(p) == suffix]
         for old in tier[:-KEEP_RUNS]:
             if old != keep:
                 shutil.rmtree(old, ignore_errors=True)
@@ -534,6 +537,8 @@ def _local_runner_id() -> str:
 
 
 def cmd_finalize(args: argparse.Namespace) -> int:
+    if args.tier == "handoff":
+        return finalize_handoff(args)
     run_dir = Path(args.run_dir)
     steps = _read_steps(run_dir)
     out: List[str] = []
@@ -697,6 +702,240 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- the handoff tier (increment B, design §B) -------------------------------
+# The wrapper's five guarantees: the input is never narrower than the diff;
+# declared untracked inputs force the full set; zero cases is never a pass; the
+# label is honest; a record exists. The selector itself is the project's (ADR-7).
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _escape(text: str) -> str:
+    """One display line, whatever the bytes: a newline in a file name or a test
+    id must never become a line of its own (it could forge a banner)."""
+    raw = os.fsencode(text).decode("utf-8", "backslashreplace")
+    return _CONTROL.sub(lambda m: "\\x%02x" % ord(m.group()), raw)
+
+
+def _show(paths: List[str]) -> str:
+    return " ".join(shlex.quote(_escape(p)) for p in paths)
+
+
+def _git_z(*args: str) -> Optional[List[str]]:
+    """A NUL-separated git listing, exact bytes kept (no C-quoting)."""
+    r = subprocess.run(["git", *args], capture_output=True, env=_git_env(), check=False)
+    if r.returncode != 0:
+        return None
+    return [os.fsdecode(p) for p in r.stdout.split(b"\0") if p]
+
+
+def _commit(ref: str) -> Optional[str]:
+    r = _git("rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}")
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def _declared_input(path: str, globs: List[str]) -> bool:
+    """`fnmatch`'s `*` already crosses `/`; `**/x` also matches a root-level `x`,
+    and a plain directory (`doc`, `doc/`) covers everything under it."""
+    for glob in globs:
+        stem = glob.rstrip("/")
+        if (fnmatch.fnmatchcase(path, glob)
+                or (glob.startswith("**/") and fnmatch.fnmatchcase(path, glob[3:]))
+                or (stem and path.startswith(stem + "/"))):
+            return True
+    return False
+
+
+def _named_path(path: str, cwd: str, root: str) -> str:
+    """A path the agent typed, read from where it was typed, relative to the
+    project root. Only the directory part is resolved: a symlink keeps its name."""
+    full = os.path.normpath(path if os.path.isabs(path) else os.path.join(cwd, path))
+    head, tail = os.path.split(full)
+    return os.path.normpath(os.path.relpath(os.path.join(os.path.realpath(head), tail), root))
+
+
+def _covers(named: str, path: str) -> bool:
+    return named in (".", path) or path.startswith(named + "/")
+
+
+def _write_z(path: Path, items: List[str]) -> None:
+    # A path that starts with `-` would reach the selector as a flag (`-x`).
+    path.write_bytes(b"".join(os.fsencode("./" + p if p.startswith("-") else p) + b"\0"
+                              for p in items))
+
+
+def cmd_diff_paths(args: argparse.Namespace) -> int:
+    """Selection = diff ∪ named. Writes selection.json, selected.z, lint.z and
+    mode (`select` or `full`) into the run directory; prints the lines the agent
+    reads. Paths are relative to the project root (the working directory)."""
+    run_dir = Path(args.run_dir)
+    root = os.path.realpath(os.getcwd())
+    base = args.base
+    reason: Optional[str] = None
+    base_sha = _commit(base)
+    head = _commit("HEAD")
+    merge_base = None
+    if base_sha is None:
+        reason = "base %s not found" % _escape(base)
+    else:
+        mb = _git("merge-base", base_sha, head) if head else None
+        merge_base = mb.stdout.strip() if mb is not None and mb.returncode == 0 else None
+        if merge_base is None:
+            reason = "no common ancestor with %s" % _escape(base)
+    listings = [["ls-files", "-z", "--others", "--exclude-standard"]]
+    if head:  # staged and unstaged
+        listings.append(["diff", "--name-only", "-z", "--no-renames", "--relative", "HEAD", "--"])
+    if merge_base:  # committed since the base
+        listings.append(["diff", "--name-only", "-z", "--no-renames", "--relative",
+                         merge_base, "HEAD", "--"])
+    diff: set = set()
+    for listing in listings:
+        found = _git_z(*listing)
+        if found is None:
+            print("verify-handoff: git %s failed" % listing[0], file=sys.stderr)
+            return 1
+        diff.update(found)
+    # The run's own outputs are never part of the change.
+    diff = {p for p in diff if p != ".verify" and not p.startswith(".verify/")}
+    named = sorted({_named_path(p, args.cwd, root) for p in args.paths})
+    touched_not_named = sorted(p for p in diff if not any(_covers(n, p) for n in named))
+    named_not_touched = [n for n in named if not any(_covers(n, p) for p in diff)]
+    selected = sorted(diff | set(named))
+    globs = args.inputs.split()
+    matched = sorted(p for p in diff if _declared_input(p, globs))
+    if reason is None:
+        if not globs:
+            reason = "no untracked inputs declared"
+        elif matched:
+            reason = "declared untracked input changed: %s" % _show(matched)
+        elif not selected:
+            # A selector given no paths is, for pytest, every test, labelled as
+            # a selection. So nothing to select from is the full set, said so.
+            reason = "empty diff against %s" % _escape(base)
+    selection = {"base": base, "diff": sorted(diff), "named": named,
+                 "touched_not_named": touched_not_named if named else [],
+                 "named_not_touched": named_not_touched, "full_set_reason": reason}
+    (run_dir / "selection.json").write_text(json.dumps(selection, indent=2) + "\n",
+                                            encoding="utf-8")
+    _write_z(run_dir / "selected.z", selected)
+    _write_z(run_dir / "lint.z", [p for p in selected if os.path.exists(p)])
+    (run_dir / "mode").write_text("full\n" if reason else "select\n", encoding="utf-8")
+    if named and touched_not_named:
+        print("touched by the diff but not named by you: %s" % _show(touched_not_named))
+    if named_not_touched:
+        print("named by you but not touched by the diff: %s" % _show(named_not_touched))
+    if reason:
+        print("full collected set — %s" % reason)
+    return 0
+
+
+_HANDOFF_WHO = {"select": "the selector", "full": "VERIFY_FULL_TEST_CMD", "lint": "lint"}
+
+
+def finalize_handoff(args: argparse.Namespace) -> int:
+    """Banner last, record line just before it. Never GREEN: that word belongs
+    to the full and merge tiers."""
+    run_dir = Path(args.run_dir)
+    selection = json.loads((run_dir / "selection.json").read_text(encoding="utf-8"))
+    reason = selection["full_set_reason"]
+    steps = _read_steps(run_dir)
+    allowed, _ = parse_allowlist(args.allow)
+    red: List[str] = []
+    exit_note: List[str] = []
+    failures: List[str] = []
+    reported: Optional[int] = None
+    for step in steps:
+        junit = step.pop("junit")
+        who = _HANDOFF_WHO.get(step["label"], step["label"])
+        if step["exit"] != 0:
+            note = "%s exited %d" % (who.replace("the ", "", 1), step["exit"])
+            (exit_note if junit else red).append(note)
+        if not junit:
+            continue
+        c = junit_counts(Path(junit))
+        step["tests"] = {"passed": c.passed, "failed": c.failed, "skipped": c.skipped,
+                         "reported": c.reported, "files": c.files}
+        if c.files == 0:
+            red.append("no JUnit report written by %s" % who)
+        else:
+            reported = c.reported
+            failures += c.failing_ids
+
+    collected: Optional[int] = None
+    if args.collect_file:
+        collected = _parse_count(Path(args.collect_file))
+        if args.collect_rc != 0:
+            red.append("VERIFY_COLLECT_CMD failed (exit %d)" % args.collect_rc)
+            collected = None
+        elif collected is None:
+            red.append("VERIFY_COLLECT_CMD printed no count")
+    # A selection runs a part on purpose ("partial"); the full set must run all.
+    if collected is None:
+        count_check = "mismatch"
+    elif not reason:
+        count_check = "partial"
+    else:
+        count_check = "ok" if reported == collected else "mismatch"
+        if reported is not None and reported != collected:
+            red.append("reported %d of %d collected" % (reported, collected))
+
+    before, after = args.tree_before or "error", args.tree_after or "error"
+    if "error" in (before, after):
+        red.append("tree hash could not be taken")
+    elif before != after:
+        red.append("tree changed during the run — this run is evidence for neither tree")
+
+    empty = reported == 0
+    if failures or red:
+        verdict = "RED"
+    elif empty:
+        verdict = "EMPTY"
+    elif exit_note:
+        verdict = "RED"
+    else:
+        verdict = "OK"
+
+    head, head_tree = _head() if before not in ("null", "error") else (None, None)
+    as_null = lambda h: None if h in ("null", "error") else h  # noqa: E731
+    record = {
+        "schema": 1, "tier": "handoff", "run_id": run_dir.name,
+        "started_at": args.started_at, "ended_at": _now(),
+        "tree": {"before": as_null(before), "after": as_null(after), "head": head,
+                 "dirty": None if head_tree is None or as_null(before) is None
+                 else as_null(before) != head_tree},
+        "runner": ({"id": os.environ["VERIFY_RUNNER_ID"], "kind": "runner"}
+                   if os.environ.get("VERIFY_RUNNER_ID")
+                   else {"id": _local_runner_id(), "kind": "local"}),
+        "steps": steps, "collected": collected, "count_check": count_check,
+        "failures": failures,
+        "declared_filters": [{"filter": a.written, "reason": a.reason} for a in allowed],
+        "red": red + exit_note, "warnings": [], "selection": selection, "verdict": verdict,
+    }
+    limits = run_dir / "limits.txt"  # written by check-banned, already printed
+    if limits.is_file():
+        record["warnings"] = limits.read_text(encoding="utf-8").splitlines()
+    (run_dir / "record.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    _prune(run_dir.parent, run_dir)
+
+    for line in exit_note + red:
+        print(line)
+    for tid in failures:
+        print("failed: %s" % _escape(tid))
+    print("record: %s" % (run_dir / "record.json"))
+    n = "?" if reported is None else str(reported)
+    m = "?" if collected is None else str(collected)
+    label = ("full collected set — %s" % reason if reason
+             else "selected by machine from the diff against %s" % _escape(selection["base"]))
+    if verdict == "EMPTY":
+        print("HANDOFF TIER EMPTY — ran 0 of %s; nothing was verified" % m)
+        return 1
+    if verdict == "RED":
+        print("HANDOFF TIER RED — ran %s of %s (%s)" % (n, m, label))
+        return 1
+    print("HANDOFF TIER — ran %s of %s (%s)" % (n, m, label))
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -712,8 +951,15 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     sub.add_parser("tree-hash")
 
+    dp = sub.add_parser("diff-paths")
+    dp.add_argument("--run-dir", required=True)
+    dp.add_argument("--base", required=True)
+    dp.add_argument("--inputs", default="")
+    dp.add_argument("--cwd", required=True)
+    dp.add_argument("paths", nargs="*")
+
     fin = sub.add_parser("finalize")
-    fin.add_argument("--tier", choices=("full", "fast"), required=True)
+    fin.add_argument("--tier", choices=("full", "fast", "handoff"), required=True)
     fin.add_argument("--run-dir", required=True)
     fin.add_argument("--started-at", default="")
     fin.add_argument("--tree-before", default="null")
@@ -729,6 +975,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "tree-hash":
         print(tree_hash())
         return 0
+    if args.command == "diff-paths":
+        return cmd_diff_paths(args)
     return cmd_finalize(args)
 
 
