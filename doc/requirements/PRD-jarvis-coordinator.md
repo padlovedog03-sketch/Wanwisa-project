@@ -1,6 +1,7 @@
 # PRD: Jarvis — the full coordinator
 
-Status: In Review
+Status: Approved
+Approval: prd-jarvis-coordinator-2026-10-20
 Owner: pm
 Upstream: owner request 2026-10-20 ("หลังจากนี้ให้ปรับ framework ตามนี้ ทุกสิ่งที่พี่พิมพ์จะเป็นการพิมพ์กับจาวิสเท่านั้นหลังจากนั้นให้จาวิสเป็นคนคุมต่อไม่ใช่ model เฉยๆ แต่จะต้องเป็นจาวิส"; then "เอาเป็นตัวเต็มร่างจริงของจาวิสอัจฉริยะเลยเพราะคือจุดขายของ framework เรา") · doc/memory/stay-on-the-definition.md · builds on doc/requirements/PRD-delegated-autonomy.md and doc/specs/SPEC-delegated-autonomy.md (both Approved)
 Date: 2026-10-20
@@ -121,4 +122,5 @@ These stay parked under the owner's re-cut of 2026-10-20 ("park until the trial 
 
 ## Approval history
 
+- **2026-10-20 — approved (human).** Registry key `prd-jarvis-coordinator-2026-10-20`, carried on the canonical `Approval:` line above.
 - **2026-10-20 — drafted.** By pm, from the owner's two messages of 2026-10-20, doc/memory/stay-on-the-definition.md, the approved delegated-autonomy PRD and spec, and the commands quoted above. Awaiting the owner.
