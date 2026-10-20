@@ -37,6 +37,7 @@ import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # RULE A3 — CONFIGURE THIS, IT SHIPS DISABLED
@@ -289,7 +290,94 @@ def main() -> None:
                 f"looked unrelated to the others."
             )
 
+    _check_always_human(command)
     sys.exit(0)
+
+
+def _check_always_human(command: str) -> None:
+    """Owner-only commands (always) and always-human items (under autonomy).
+
+    The list and the matching live in `scripts/autonomy.py`; this adapter only
+    decides when to refuse. `ALLOW_DESTRUCTIVE=1` does not reach this rule.
+    Imported here, after A1' and A3 have run, so a broken import cannot take
+    the older rules down with it. If the core cannot load (missing, or broken
+    by an edit), the owner rule still holds through a minimal inline matcher:
+    an exit 1 here would be non-blocking, which is fail-open.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        _apply_core(command)
+    except Exception as exc:  # noqa: BLE001 — a core that fails to load OR to run must not open the owner rule
+        _owner_rule_without_core(command, exc)
+
+
+def _apply_core(command: str) -> None:
+    # The core comes through the adapter, which loads it from its source file.
+    from guard_autonomy_paths import ADAPTER_PROTECTED, autonomy
+
+    cwd = Path.cwd()
+    root = autonomy.project_root(cwd)
+    try:
+        config, config_problem = autonomy.load_config(root), ""
+    except autonomy.ConfigError as exc:
+        # Framework items stay on; only the project's additions are lost.
+        config, config_problem = {}, f"\n({exc} — the framework items still apply.)"
+    segments = autonomy.segments(command)
+    branch = autonomy.current_branch(cwd) if any(_program_name(s[0]) == "git" for s in segments) else None
+    matches = autonomy.command_matches(
+        command,
+        config,
+        root=root,
+        cwd=cwd,
+        current_branch=branch,
+        extra_protected=ADAPTER_PROTECTED,
+    )
+
+    for match in matches:
+        if match.scope == "always":
+            _block(
+                f"BLOCKED (.claude/hooks/guard_bash.py, rule AH5): owner-only command — "
+                f"matched: {match.pattern}.\n"
+                f"This writes the approval registry, which only a human writes "
+                f"(AGENTS.md §6). An agent running it would approve its own work.\n"
+                f"Ask the owner to run it themselves with the `!` prefix. Read-only "
+                f"forms (`--list`, `--dry-run`) stay allowed."
+            )
+
+    if not matches:
+        return
+    state = autonomy.status(root)
+    if state == "inactive":
+        return
+    match = matches[0]
+    _block(
+        f"BLOCKED (.claude/hooks/guard_bash.py): always-human item {match.item} — "
+        f"matched: {match.pattern}.\n"
+        f"Autonomy is active ({state}), and no mandate, order or absence covers this "
+        f"item. Stop and ask the owner.{config_problem}"
+    )
+
+
+#: The owner scripts, by name anywhere in the command, for when the core
+#: (scripts/autonomy.py) cannot load. Deliberately cruder than the core: it
+#: also refuses a mere mention, which is the safe direction while broken.
+_OWNER_FALLBACK = re.compile(
+    r"(?<![\w.-])(approve|delegate|revoke|override|away|evolve|release)\.(sh|py)(?![\w.-])"
+)
+
+
+def _owner_rule_without_core(command: str, exc: Exception) -> None:
+    """No read-only exemption here: `-n` elsewhere in the command (`nice -n`)
+    would open the rule. While the core is broken, `--list` is refused too."""
+    match = _OWNER_FALLBACK.search(command)
+    if match:
+        _block(
+            f"BLOCKED (.claude/hooks/guard_bash.py, rule AH5): owner-only command — "
+            f"matched: {match.group(0)}.\n"
+            f"scripts/autonomy.py failed to load or run ({type(exc).__name__}: {exc}), so "
+            f"this guard refuses every owner script by name until it is repaired. Ask "
+            f"the owner to run it themselves with the `!` prefix."
+        )
 
 
 if __name__ == "__main__":

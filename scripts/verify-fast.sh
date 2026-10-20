@@ -142,6 +142,17 @@ case " $* " in
     ;;
 esac
 
+# The always-human list (scripts/autonomy.py) is imported by the hooks AND by
+# the commit-msg hook, so a touch to it, its project file, the git hooks or
+# their tests re-runs both suites that exercise it.
+case " $* " in
+  *"scripts/autonomy"* | *"tests/framework/test_autonomy"* | *".githooks"* \
+  | *"tests/framework/test_pre_commit"*)
+    echo "== always-human list tests"
+    python3 -m pytest tests/framework/ tests/hooks/ -q
+    ;;
+esac
+
 if [ "$todo" -ne 0 ]; then
   echo "FAST VERIFY INCOMPLETE — ${todo} of 2 step(s) not configured; they verified NOTHING."
   echo "Fill LINT and TEST in scripts/verify-fast.sh."

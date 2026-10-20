@@ -12,6 +12,7 @@ Run: `python3 -m pytest tests/framework/ -q`   (stdlib + git)
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -84,3 +85,104 @@ def test_planted_provider_name_is_refused(tmp_path: Path) -> None:
     result = _git(repo, "commit", "-q", "-m", "planted", env=env)
     assert result.returncode != 0
     assert "FAIL scripts/check_neutrality.py" in result.stdout + result.stderr
+
+
+# --------------------------------------------------------------------------- B-AC7
+# SPEC-delegated-autonomy B-AC7 places this check in `.githooks/pre-commit`.
+# Measured 2026-10-20: pre-commit runs BEFORE git writes the new message, so it
+# sees no message on a first commit and the PREVIOUS commit's message after
+# that — a trailer check there would accept a stale `Owner-Approved:`. The check
+# therefore runs from `.githooks/commit-msg`, which receives the message file.
+# These tests commit for real, so they hold whichever hook carries it.
+
+_MANDATE_KEY = "mandate-proj-first-2026-10-20"
+
+
+def _opt_in(repo: Path, env: dict[str, str]) -> None:
+    """Commit the template, then put the project under an active mandate."""
+    _git(repo, "add", "-A", env=env)
+    assert _git(repo, "commit", "-q", "-m", "clean", env=env).returncode == 0
+    entry = {
+        "key": _MANDATE_KEY,
+        "artifact": "doc/mandates/MANDATE-proj-first.md",
+        "status": "Approved",
+        "approved_by": "owner",
+        "approved_at": "2026-10-20T09:00:00+07:00",
+        "kind": "mandate",
+        "expires": "2099-12-31",
+    }
+    Path(env["APPROVAL_LOG"]).write_text(json.dumps(entry) + "\n", encoding="utf-8")
+    (repo / "scripts" / "autonomy.json").write_text('{"project": "proj"}\n', encoding="utf-8")
+    _git(repo, "add", "-A", env=env)
+    opted = _git(repo, "commit", "-q", "-m", f"opt in\n\nOwner-Approved: {_MANDATE_KEY}", env=env)
+    assert opted.returncode == 0, opted.stdout + opted.stderr
+
+
+def _widen(repo: Path, env: dict[str, str], message: str) -> subprocess.CompletedProcess[str]:
+    (repo / "scripts" / "autonomy.json").write_text('{"project": "proj", "data_globs": []}\n')
+    _git(repo, "add", "-A", env=env)
+    return _git(repo, "commit", "-q", "-m", message, env=env)
+
+
+def test_protected_path_without_owner_trailer_is_refused_under_autonomy(tmp_path: Path) -> None:
+    repo, env = _clone_template(tmp_path)
+    _opt_in(repo, env)
+    result = _widen(repo, env, "widen")
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "always-human item AH5" in out
+    assert "scripts/autonomy.json" in out
+
+
+def test_a_stale_trailer_from_the_previous_commit_does_not_count(tmp_path: Path) -> None:
+    """The exact false pass a pre-commit placement would produce: the previous
+    commit carried a valid trailer, this one carries none."""
+    repo, env = _clone_template(tmp_path)
+    _opt_in(repo, env)  # its message carried a valid Owner-Approved trailer
+    assert _widen(repo, env, "widen, no trailer").returncode != 0
+
+
+def test_protected_path_with_an_unknown_trailer_key_is_refused(tmp_path: Path) -> None:
+    repo, env = _clone_template(tmp_path)
+    _opt_in(repo, env)
+    result = _widen(repo, env, "widen\n\nOwner-Approved: made-up-key")
+    assert result.returncode != 0
+    assert "always-human item AH5" in result.stdout + result.stderr
+
+
+def test_protected_path_with_a_resolving_owner_trailer_passes(tmp_path: Path) -> None:
+    """The trailer names the owner's approval of the changed path. A mandate
+    key no longer counts here (QA S1, coordinator ruling 2026-10-20; pinned in
+    tests/framework/test_commit_msg_owner_trailer.py)."""
+    repo, env = _clone_template(tmp_path)
+    _opt_in(repo, env)
+    approval = {
+        "key": "autonomy-json-2026-10-20",
+        "artifact": "scripts/autonomy.json",
+        "status": "Approved",
+        "approved_by": "owner",
+        "approved_at": "2026-10-20T10:00:00+07:00",
+    }
+    with Path(env["APPROVAL_LOG"]).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(approval) + "\n")
+    result = _widen(repo, env, "widen\n\nOwner-Approved: autonomy-json-2026-10-20")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_ordinary_paths_commit_freely_under_autonomy(tmp_path: Path) -> None:
+    repo, env = _clone_template(tmp_path)
+    _opt_in(repo, env)
+    (repo / "notes.txt").write_text("ordinary work\n", encoding="utf-8")
+    _git(repo, "add", "-A", env=env)
+    result = _git(repo, "commit", "-q", "-m", "work", env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_protected_path_commits_freely_without_autonomy(tmp_path: Path) -> None:
+    repo, env = _clone_template(tmp_path)
+    _git(repo, "add", "-A", env=env)
+    assert _git(repo, "commit", "-q", "-m", "clean", env=env).returncode == 0
+    (repo / "scripts" / "approve.py").write_text("# edited\n", encoding="utf-8")
+    _git(repo, "add", "-A", env=env)
+    result = _git(repo, "commit", "-q", "-m", "edit", env=env)
+    assert result.returncode == 0, result.stdout + result.stderr

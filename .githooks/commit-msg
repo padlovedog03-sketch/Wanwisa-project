@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 # Risk tier 0: a `fix` commit carries its test (scripts/check_fix_has_test.py).
+# Under autonomy, a staged protected path needs an `Owner-Approved: <key>`
+# trailer (scripts/autonomy.py check-commit; SPEC-delegated-autonomy B-AC7).
+# The trailer check lives HERE, not in pre-commit: pre-commit runs before git
+# writes the new message and would read the previous commit's (measured
+# 2026-10-20). The --protect globs are adapter wiring the core may not name.
 # Enabled by the same `git config core.hooksPath .githooks` as pre-commit.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-exec python3 scripts/check_fix_has_test.py "$1"
+
+fail=0
+# `-I`: neither scripts/ nor PYTHONPATH goes on the import path, so a
+# `scripts/<stdlib name>.py` cannot replace a module these checks import.
+python3 -I scripts/check_fix_has_test.py "$1" || fail=1
+if [ -f scripts/autonomy.py ]; then
+  python3 -I scripts/autonomy.py check-commit --message-file "$1" \
+    --protect '.claude/hooks/**' --protect '.claude/settings.json' \
+    --protect '.claude/settings.local.json' || fail=1
+elif [ -f scripts/autonomy.json ]; then
+  # Opted in, but the checker is gone: refuse rather than skip silently.
+  echo "commit-msg: always-human item AH5 — scripts/autonomy.json exists but scripts/autonomy.py is missing" >&2
+  fail=1
+fi
+exit $fail
