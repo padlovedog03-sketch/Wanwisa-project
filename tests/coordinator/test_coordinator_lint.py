@@ -18,6 +18,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "coordinator_lint.py"
 
@@ -373,6 +375,41 @@ def test_each_slice_block_is_judged_on_its_own_fields() -> None:
     assert len(violations) == 1, violations
     assert violations[0].line_no == _FULL_BRIEF.count("\n") + 2
     assert "'Criteria:'" in violations[0].reason
+
+
+def _prefixed(prefix: str, brief: str = _FULL_BRIEF) -> str:
+    return "".join(prefix + line + "\n" for line in brief.splitlines())
+
+
+@pytest.mark.parametrize("prefix", ["  ", "\t", "- ", "* ", "1. ", "  - "])
+def test_an_indented_or_bulleted_brief_missing_criteria_is_flagged(prefix: str) -> None:
+    """A brief written indented or as a list must still be judged — a
+    `Slice:` matched only at column 0 let these through silently."""
+    brief = _prefixed(prefix, _without("Criteria:"))
+
+    violations = _rule6(brief + "\n" + _SELF_REPORT)
+
+    assert len(violations) == 1, violations
+    assert violations[0].line_no == 1
+    assert "'Criteria:'" in violations[0].reason
+
+
+@pytest.mark.parametrize("prefix", ["  ", "\t", "- ", "* ", "1. ", "  - "])
+def test_an_indented_or_bulleted_full_brief_is_clean(prefix: str) -> None:
+    """Fields are matched the same way as `Slice:`, so an indented field is
+    not falsely reported missing."""
+    assert _rule6(_prefixed(prefix) + "\n" + _SELF_REPORT) == []
+
+
+def test_an_empty_indented_field_does_not_borrow_the_next_line() -> None:
+    brief = _prefixed("- ", _FULL_BRIEF).replace(
+        "- Files:        scripts/coordinator_lint.py · tests/coordinator/test_coordinator_lint.py\n",
+        "- Files:\n",
+    )
+
+    violations = _rule6(brief + "\n" + _SELF_REPORT)
+
+    assert [("'Files:'" in v.reason) for v in violations] == [True], violations
 
 
 def test_rework_is_optional_in_a_brief() -> None:
