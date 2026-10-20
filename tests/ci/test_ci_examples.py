@@ -430,10 +430,12 @@ _REAL_FRAMEWORK_STEP = (
 
 
 def test_gate_2_command_is_the_exit_gate_and_the_path_is_real_and_executable() -> None:
+    # The last line runs the exit gate, after the base's gate code is checked out
+    # (test_gate_2_takes_the_gate_code_from_the_base_branch).
     gh_run = _gh_step("ประตูออก")["run"].strip()
     ado_script = _ado_step("ประตูออก")["script"].strip()
-    assert gh_run == _EXIT_GATE_COMMAND
-    assert ado_script == _EXIT_GATE_COMMAND
+    assert gh_run.splitlines()[-1].strip() == _EXIT_GATE_COMMAND
+    assert ado_script.splitlines()[-1].strip() == _EXIT_GATE_COMMAND
 
     resolved = _REPO_ROOT / "scripts" / "verify-full.sh"
     assert resolved.is_file(), f"{_EXIT_GATE_COMMAND} does not exist at {resolved}"
@@ -475,6 +477,74 @@ def test_gate_2_extracted_command_actually_runs(tmp_path: Path) -> None:
     assert "EXIT GATE INCOMPLETE" in result.stdout, result.stdout
 
 
+def _git_ci(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
+def _gate_2_clone(tmp_path: Path) -> Path:
+    """A CI checkout of a candidate branch whose gate code differs from its base:
+    the base's verify-full.sh prints BASE GATE, the candidate's prints CANDIDATE
+    GATE, and the candidate adds a verify.conf the base does not have."""
+    origin = tmp_path / "origin.git"
+    _git_ci(tmp_path, "init", "-q", "--bare", str(origin))
+    work = tmp_path / "work"
+    _git_ci(tmp_path, "clone", "-q", str(origin), str(work))
+    for k, v in (("user.name", "t"), ("user.email", "t@example.invalid")):
+        _git_ci(work, "config", k, v)
+    _git_ci(work, "symbolic-ref", "HEAD", "refs/heads/main")
+    scripts = work / "scripts"
+    scripts.mkdir()
+    gate = scripts / "verify-full.sh"
+    gate.write_text("#!/usr/bin/env bash\necho BASE GATE\n", encoding="utf-8")
+    gate.chmod(0o755)
+    (scripts / "verify_record.py").write_text("# base recorder\n", encoding="utf-8")
+    _git_ci(work, "add", "-A")
+    _git_ci(work, "commit", "-q", "-m", "base")
+    _git_ci(work, "push", "-q", "origin", "main")
+    _git_ci(work, "checkout", "-q", "-b", "candidate")
+    gate.write_text("#!/usr/bin/env bash\necho CANDIDATE GATE\n", encoding="utf-8")
+    (scripts / "verify.conf").write_text("VERIFY_MERGE_GATE=runner\n", encoding="utf-8")
+    _git_ci(work, "add", "-A")
+    _git_ci(work, "commit", "-q", "-m", "candidate rewrites the gate")
+    _git_ci(work, "checkout", "-q", "--detach")  # CI checks out a commit, not a branch
+    # The runner's clone knows nothing of the base yet; gate 2 must fetch it.
+    _git_ci(work, "update-ref", "-d", "refs/remotes/origin/main")
+    return work
+
+
+def _gate_2_script(which: str) -> tuple[str, dict[str, str]]:
+    if which == "github":
+        step = _gh_step("ประตูออก")
+        # Emulates the expression GitHub evaluates; empty on a push build.
+        assert step.get("env", {}).get("BASE_BRANCH") == "${{ github.base_ref || 'main' }}"
+        return step["run"], {"BASE_BRANCH": "main"}
+    if which == "azure-pr":
+        return _ado_step("ประตูออก")["script"], {"SYSTEM_PULLREQUEST_TARGETBRANCH": "refs/heads/main"}
+    return _ado_step("ประตูออก")["script"], {}  # a push build: no PR target branch
+
+
+@pytest.mark.parametrize("which", ["github", "azure-pr", "azure-push"])
+def test_gate_2_takes_the_gate_code_from_the_base_branch(tmp_path: Path, which: str) -> None:
+    """R11: the runner must not judge a candidate with gate code the candidate
+    wrote. Gate 2 runs the base's verify-full.sh, with the base's recorder and
+    conf, and says so when the candidate changed them."""
+    work = _gate_2_clone(tmp_path)
+    body, env = _gate_2_script(which)
+    script = tmp_path / "gate2.sh"
+    script.write_text(body, encoding="utf-8")
+    run_env = {k: v for k, v in os.environ.items() if k != "SYSTEM_PULLREQUEST_TARGETBRANCH"}
+    result = subprocess.run(["bash", str(script)], cwd=work, capture_output=True, text=True,
+                            timeout=60, check=False, env={**run_env, **env})
+    out = result.stdout + result.stderr
+    assert result.returncode == 0, out
+    assert "BASE GATE" in result.stdout and "CANDIDATE GATE" not in result.stdout, out
+    assert ("note: this candidate changes the gate code — judged with origin/main's copy; "
+            "review the gate diff") in result.stdout, out
+    assert not (work / "scripts" / "verify.conf").exists(), "the candidate's conf was not removed"
+    assert (work / "scripts" / "verify_record.py").read_text(encoding="utf-8") == "# base recorder\n"
+
+
 # ---------------------------------------------------------------------------
 # Gate 4 — deliberately NOT executed. See the module docstring for why.
 # ---------------------------------------------------------------------------
@@ -513,7 +583,11 @@ def test_every_script_path_named_in_either_ci_file_exists() -> None:
                 token = token.strip("`\"'")
                 if not token.startswith("scripts/"):
                     continue
-                candidate = _REPO_ROOT / token.rstrip(".,")
+                token = token.rstrip(".,;")  # sentence or shell punctuation
+                candidate = _REPO_ROOT / token
+                if token == "scripts/verify.conf":
+                    # A project's own file, made from the committed example (SETUP §6).
+                    candidate = _REPO_ROOT / "scripts" / "verify.conf.example"
                 assert candidate.is_file(), (
                     f"{token!r} named in {source_path.name} does not exist at {candidate}"
                 )

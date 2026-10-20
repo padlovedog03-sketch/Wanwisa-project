@@ -10,8 +10,8 @@ Every task runs as a loop against verifiable success criteria. Claims without ev
 ## The Loop
 
 ```
-DEFINE DONE → PLAN → EXECUTE → VERIFY (fast tier) → pass? → EXIT GATE (full tier) → REPORT with evidence
-                        ▲          │
+DEFINE DONE → PLAN → EXECUTE → VERIFY (fast tier) → pass? → EXIT GATE (full tier) when verify-handoff.sh --status says not opted in → REPORT with evidence
+                        ▲          │                        └─ opted in: HANDOFF TIER → REPORT; the MERGE GATE does the full run once per merge
                         └─DIAGNOSE─┘ (max 5 iterations)
 ```
 
@@ -48,11 +48,13 @@ The saving is unproven. The trial measures turns and model time before and after
 | | command | when | what it costs |
 |---|---|---|---|
 | **fast tier** (inner loop) | `scripts/verify-fast.sh <paths>` — **always pass the paths you touched** | after every change while iterating | scoping is the whole point; on the originating project it was 0.49s scoped vs 47.6s unscoped |
-| **exit gate** | `scripts/verify-full.sh` | before **every** handoff, no exceptions | the full suite plus the project-wide gates your team added (format check, migrations, contract freshness) |
+| **exit gate** | `scripts/verify-full.sh` | before **every** handoff, no exceptions, when `scripts/verify-handoff.sh --status` says *not opted in* (or the script does not exist) | the full suite plus the project-wide gates your team added (format check, migrations, contract freshness) |
+| **handoff tier** (opted in) | `scripts/verify-handoff.sh` | before every handoff when `scripts/verify-handoff.sh --status` says *opted in* | the tests a machine selects from the diff, labelled `ran N of M`; never GREEN |
+| **merge gate** (opted in) | `scripts/verify-merge.sh` | once per merge candidate, on a runner (or the local fallback, labelled weaker) | the full run, in a fresh worktree of the commit, bound to its tree and its runner |
 
 **Actually run the check.** Never mark a criterion passed from reasoning alone. Read the real output.
 
-**Pass the paths.** `scripts/verify-fast.sh` with no argument runs the whole suite; with the paths you touched it runs only what can have broken. On the project this framework came from that was 47.6s versus 0.49s — the same script, about seventy times faster. The speed already exists; forgetting the argument is what costs the time, and over a day of iterating it was the single largest avoidable delay in the loop. Scoping the *inner* loop is not narrowing the gate: the exit gate always runs everything.
+**Pass the paths.** `scripts/verify-fast.sh` with no argument runs the whole suite; with the paths you touched it runs only what can have broken. On the project this framework came from that was 47.6s versus 0.49s — the same script, about seventy times faster. The speed already exists; forgetting the argument is what costs the time, and over a day of iterating it was the single largest avoidable delay in the loop. Scoping the *inner* loop is not narrowing the gate: the exit gate always runs everything, and in an opted-in project the merge gate does, once per merge.
 
 The fast tier is a convenience, never a claim. A handoff that pastes fast-tier output is not verified. Things that are **forbidden** in either tier, because each one can report success while executing nothing:
 
@@ -72,7 +74,7 @@ The fast tier is a convenience, never a claim. A handoff that pastes fast-tier o
 
 End with evidence:
 
-- Which criteria passed — with the `scripts/verify-full.sh` output that proves it.
+- Which criteria passed — with the `scripts/verify-full.sh` output that proves it, when `scripts/verify-handoff.sh --status` says *not opted in* (or the script does not exist); when opted in, with the handoff tier's `ran N of M` output, and the merge gate's record carries the full run.
 - Which failed or were blocked — with the actual error and your diagnosis.
 - Never say "should work", "probably passes", or "done" without a run.
 

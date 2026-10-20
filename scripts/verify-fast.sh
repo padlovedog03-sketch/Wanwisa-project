@@ -52,7 +52,7 @@ collect_cmd_args=()
 runtime_args=()
 for a in "$@"; do runtime_args+=("--runtime=$a"); done
 # The paths typed here are runtime arguments: the allow-list never covers them.
-python3 scripts/verify_record.py check-banned ${allow_args[@]+"${allow_args[@]}"} \
+python3 -I scripts/verify_record.py check-banned ${allow_args[@]+"${allow_args[@]}"} \
   ${runner_args[@]+"${runner_args[@]}"} "--extra=${VERIFY_EXTRA_BANNED:-}" \
   "--step=lint|$(printf '%q ' "${LINT[@]}")" "--step=tests|$(printf '%q ' "${TEST[@]}")" \
   ${collect_cmd_args[@]+"${collect_cmd_args[@]}"} "${runtime_args[@]}"
@@ -167,6 +167,6 @@ if [ -n "${VERIFY_COLLECT_CMD:-}" ]; then
   eval "$VERIFY_COLLECT_CMD" >"$RUN_DIR/collect.txt" 2>"$RUN_DIR/collect.err" || crc=$?
   collect_args=(--collect-file "$RUN_DIR/collect.txt" --collect-rc "$crc")
 fi
-exec python3 scripts/verify_record.py finalize --tier fast --run-dir "$RUN_DIR" \
+exec python3 -I scripts/verify_record.py finalize --tier fast --run-dir "$RUN_DIR" \
   --started-at "$STARTED_AT" ${collect_args[@]+"${collect_args[@]}"} \
   ${allow_args[@]+"${allow_args[@]}"}

@@ -444,3 +444,122 @@ def test_the_tier_row_check_rejects_a_row_with_reviewer_after_qa() -> None:
     assert not _ordered("| **1** | x | engineer → qa → reviewer |", ("engineer", "reviewer", "qa"))
     assert not _ordered("| **1** | x | engineer → frontend-qa |", ("engineer", "reviewer", "qa"))
     assert _ordered("| **2** | x | pm → engineer → reviewer → 👤 → qa → 👤 |", ("engineer", "reviewer", "qa"))
+
+
+# ---------------------------------------------------------------------------
+# Increment D (D-AC6, R14) — every "full run before every handoff" rule carries
+# the opt-in qualifier. An opted-in project hands off on the handoff tier and
+# runs the full suite once per merge (scripts/verify-merge.sh); a project that
+# has not opted in keeps the full run before every handoff, exactly as before.
+# ---------------------------------------------------------------------------
+
+R14_SCOPE = ("AGENTS.md", ".agents", ".claude/agents", "doc/framework", "doc/templates",
+             "scripts/verify-full.sh")
+#: Design §D "R14 patterns". Each requiring location matches at least one
+#: (asserted below through `R14_LOCATIONS`), so the list cannot pass vacuously.
+R14_PATTERNS = (
+    r"before every handoff",
+    r"before \*\*every\*\* handoff",
+    r"ก่อนส่งมอบทุกครั้ง",
+    r"ก่อนถือว่าเสร็จ",
+    r"exit gate, before the handoff",
+    r"verify-full\.sh`? output",
+    r"the verdict command is the exit gate",
+    r"run the full suite",
+    r"EXIT GATE \(full tier\)",
+    r"Paste this output in the handoff",
+)
+R14_QUALIFIERS = ("verify-handoff.sh --status", "not opted in", "ยังไม่ opt-in")
+#: The requiring locations, found by a fragment of their own text rather than a
+#: line number (line numbers drift with every edit above them).
+R14_LOCATIONS = (
+    ("scripts/verify-full.sh", "# THE EXIT GATE."),
+    ("scripts/verify-full.sh", 'echo "EXIT GATE GREEN.'),
+    ("AGENTS.md", "scripts/verify-full.sh           #"),
+    (".agents/skills/engineering-loop/SKILL.md", "EXIT GATE (full tier)"),
+    (".agents/skills/engineering-loop/SKILL.md", "| **exit gate** |"),
+    (".agents/skills/engineering-loop/SKILL.md", "- Which criteria passed"),
+    (".claude/agents/ai-engineer.md", "**exit gate, before the handoff"),
+    (".claude/agents/ai-engineer.md", "**Report** with evidence"),
+    (".claude/agents/qa.md", "The verdict command is the exit gate"),
+    (".claude/agents/qa.md", "3. **Execute**"),
+    (".claude/agents/frontend-qa.md", "**Never trust a reported pass"),
+    (".claude/agents/frontend-qa.md", "3. **Execute**"),
+    ("doc/framework/SETUP.md", "คือประตูออก**"),
+)
+_R14_RE = re.compile("|".join(R14_PATTERNS), re.I)
+
+
+def _r14_files(root: Path) -> list[Path]:
+    files = []
+    for rel in R14_SCOPE:
+        path = root / rel
+        files += [path] if path.is_file() else sorted(p for p in path.rglob("*") if p.is_file())
+    return files
+
+
+def r14_violations(root: Path) -> list[str]:
+    """`file:line` of every line in the R14 scope that requires a full run and
+    does not carry the opt-in qualifier. A `Do not:` line forbids a full run
+    rather than requiring one, so it is exempt."""
+    bad = []
+    for path in _r14_files(root):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for n, line in enumerate(lines, 1):
+            if line.lstrip().startswith("Do not:") or not _R14_RE.search(line):
+                continue
+            if not any(q in line for q in R14_QUALIFIERS):
+                bad.append(f"{path.relative_to(root).as_posix()}:{n}")
+    return bad
+
+
+@pytest.mark.parametrize("root", [_REPO_ROOT], ids=["repo"])
+def test_every_full_run_rule_carries_the_opt_in_qualifier(root: Path) -> None:
+    """D-AC6 (R14, M9)."""
+    assert r14_violations(root) == []
+
+
+@pytest.mark.parametrize(("rel", "anchor"), R14_LOCATIONS, ids=[f"{r}:{a[:24]}" for r, a in R14_LOCATIONS])
+def test_each_requiring_location_matches_a_pattern_and_is_qualified(rel: str, anchor: str) -> None:
+    """D-AC6: the pattern list reaches every location the PRD names."""
+    lines = [ln for ln in (_REPO_ROOT / rel).read_text(encoding="utf-8").splitlines() if anchor in ln]
+    assert len(lines) == 1, f"{rel}: expected one line with {anchor!r}, found {len(lines)}"
+    assert _R14_RE.search(lines[0]), f"{rel}: {lines[0]!r} matches no R14 pattern"
+    assert any(q in lines[0] for q in R14_QUALIFIERS), f"{rel}: {lines[0]!r} lacks the qualifier"
+
+
+def test_a_planted_unqualified_rule_is_named_with_file_and_line(tmp_path: Path) -> None:
+    """D-AC6 RED-FIRST: the planted line from the spec."""
+    _plant(tmp_path, ".agents/skills/x/SKILL.md", "# x\n\nrun verify-full before every handoff\n")
+    assert r14_violations(tmp_path) == [".agents/skills/x/SKILL.md:3"]
+
+
+def test_a_do_not_line_is_exempt_and_a_qualified_line_is_clean(tmp_path: Path) -> None:
+    _plant(tmp_path, "AGENTS.md",
+           "Do not:       run the full suite · commit\n"
+           "run the full suite (when `scripts/verify-handoff.sh --status` says *not opted in*)\n")
+    assert r14_violations(tmp_path) == []
+
+
+@pytest.mark.parametrize("rel", [
+    ".agents/skills/coordinator-discipline/SKILL.md",
+    "doc/framework/WHY.md",
+    "doc/framework/SETUP.md",
+])
+def test_the_related_locations_name_the_merge_gate(rel: str) -> None:
+    """D-AC6, second assertion: the three consistency locations mention verify-merge.sh."""
+    assert "verify-merge.sh" in (_REPO_ROOT / rel).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("agent", ["qa.md", "frontend-qa.md"])
+def test_qa_verdict_rests_on_its_own_run_never_an_earlier_record(agent: str) -> None:
+    """D-AC7 (R15): an opted-in QA verdict is QA's own handoff-tier run plus the
+    tests it added, labelled `ran N of M`, never an earlier record."""
+    text = (_AGENTS / agent).read_text(encoding="utf-8")
+    line = next((ln for ln in text.splitlines() if "own handoff-tier run" in ln), "")
+    assert line, f"{agent} lacks the opted-in verdict rule"
+    for phrase in ("plus the tests you added", "ran N of M", "never an earlier record"):
+        assert phrase in line, f"{agent}: verdict rule lacks {phrase!r}"

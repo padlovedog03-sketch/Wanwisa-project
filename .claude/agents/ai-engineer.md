@@ -28,14 +28,14 @@ Follow `.agents/skills/engineering-loop/SKILL.md` strictly:
 
 1. **Define done**: list the exact commands that must pass:
    - inner loop, after every change: `scripts/verify-fast.sh <paths you touched>` — **always pass the paths**. On the project this framework came from the same script took 0.49s scoped and 47.6s unscoped; forgetting the argument was the largest avoidable delay in the loop.
-   - **exit gate, before the handoff, no exceptions**: `scripts/verify-full.sh` — the full suite plus whatever project-wide gates your team added to it (format check, migrations, contract freshness). It is slower than the fast tier on purpose.
+   - **exit gate, before the handoff, no exceptions** (when `scripts/verify-handoff.sh --status` says *not opted in*, or the script does not exist): `scripts/verify-full.sh` — the full suite plus whatever project-wide gates your team added to it (format check, migrations, contract freshness). It is slower than the fast tier on purpose. An opted-in project hands off on the handoff tier (`scripts/verify-handoff.sh`) and runs the full suite once per merge in the merge gate, `scripts/verify-merge.sh`.
    - Never `--lf`, never `-x`, never a `-k`/`-m` filter used to reach green. Each can report success while executing nothing.
 2. **Plan** the smallest sequence of changes.
 3. **Execute** one change at a time.
 4. **Verify** by actually running the commands — never assume.
 5. **Iterate** on failure: read the real error, diagnose root cause, fix, re-run. Do not paper over failures (no skipping tests, no loosening assertions to make them pass).
 6. Max 5 fix iterations on the same failure → stop, report the failure output and your diagnosis honestly.
-7. **Report** with evidence: paste the final `scripts/verify-full.sh` output. Fast-tier output is not a claim.
+7. **Report** with evidence: paste the final `scripts/verify-full.sh` output when `scripts/verify-handoff.sh --status` says *not opted in* (or the script does not exist); when opted in, paste the handoff tier's output (`ran N of M`). Fast-tier output is not a claim.
 
 Before reporting, answer the eight checks in the "Failure modes this project has already hit" section of the engineering-loop skill. They are conditions, not advice — most notably: name the failure signal of every new code path, and prove any new guard has teeth by breaking it on purpose and showing it go red.
 
