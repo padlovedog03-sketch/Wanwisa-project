@@ -263,3 +263,13 @@ All 339 pre-existing hook tests stay green, and so do the 129 other framework te
 
 - **2026-10-20 — drafted.** qa, against SPEC-delegated-autonomy (Approved, key spec-delegated-autonomy-2026-10-20) at commit 9670f32. Adds 25 red-first regression tests (24 in hooks, 1 in framework) in `tests/hooks/test_regression_always_human_bypasses.py` and `tests/framework/test_regression_commit_msg_autonomy.py`.
 - **2026-10-20 — re-test 1.** qa, against 7309362. FAIL on B-AC2, B-AC4, B-AC6 and B-AC7; B-AC5 still pending the owner's live probe. Adds 22 red-first regression tests in `tests/hooks/test_regression_autonomy_rework_bypasses.py` and 1 in `tests/framework/test_regression_commit_msg_autonomy.py`.
+
+## B-AC5 live owner probe (coordinator, 2026-10-20)
+
+After the B merge (8cccea4) the owner ran, from their own `!` shell prefix:
+`APPROVAL_LOG=/tmp/jarvis-probe.jsonl scripts/approve.sh zz-nomatch --by <owner>`
+Output: `ปฏิเสธทั้งชุด — ยังไม่ได้เขียนอะไรเลย: zz-nomatch: ไม่มีเอกสารที่ git track และชื่อไฟล์ตรงกับ slug นี้`
+— approve.py's own refusal, no `BLOCKED … owner-only`. The owner-only rule does not fire on the
+owner's `!` commands. Same session, an agent-issued `scripts/approve.sh x --by a` → guard exit 2.
+
+B-AC5: **PASS**.
