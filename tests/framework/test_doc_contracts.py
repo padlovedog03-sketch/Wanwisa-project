@@ -184,7 +184,13 @@ def test_qa_template_lists_exactly_the_meter_vocabulary() -> None:
 
 
 def test_qa_template_vocabulary_is_the_five_spec_causes() -> None:
-    """H-AC4 names the five literally; this pins the template while the meter is absent."""
+    """H-AC4 names the five literally; this pins the template while the meter is absent.
+
+    Temporary: once `scripts/agent_time.py` is on the branch the test above is
+    the one source, and this literal copy stands down so the two cannot drift.
+    """
+    if (_REPO_ROOT / "scripts" / "agent_time.py").is_file():
+        pytest.skip("agent_time.REWORK_CAUSES is the source now — see the test above")
     assert set(template_rework_causes()) == {"missed-ac", "regression", "spec-defect", "test-gap", "env-flaky"}
 
 
