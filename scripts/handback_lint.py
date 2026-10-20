@@ -18,9 +18,15 @@ missing field is the failure.
 * It runs only when the coordinator pipes a handback into it. Nothing calls it
   automatically — it is an opt-in grammar check, like `coordinator_lint.py`.
 
+`--spec <spec>` (R30) also checks an engineer's `Self-check:` block: one line
+`<AC-id>: <command> → <result>` for every AC id in the spec's first table
+column. The block runs from the `Self-check:` line to the first blank line.
+Again presence only: it cannot tell whether the command was really run.
+
 Usage:
     python3 scripts/handback_lint.py <file>
     python3 scripts/handback_lint.py -            # read stdin
+    python3 scripts/handback_lint.py --spec doc/specs/SPEC-x.md -
 """
 
 from __future__ import annotations
@@ -55,15 +61,63 @@ def lint(text: str) -> list[str]:
     return problems
 
 
+#: An AC id in a spec's first table column: `AC1`, `H-AC2`, `AC-AC14`.
+_SPEC_AC_RE = re.compile(r"^\|\s*([A-Z]*-?AC\d+)\s*\|", re.MULTILINE)
+
+#: `- AC1: <command> → <result>`. `[ \t]*`, never `\s*`: an empty result must
+#: not swallow the next line as its value (the fe59b02 bug).
+_SELF_CHECK_LINE_RE = re.compile(r"^[ \t]*[-*]?[ \t]*([A-Z]*-?AC\d+)[ \t]*:[ \t]*(.*?)[ \t]*(?:→|->)[ \t]*(.*?)[ \t]*$")
+
+
+def spec_ac_ids(spec_text: str) -> list[str]:
+    """AC ids from the spec's first table column, in order, without duplicates."""
+    return list(dict.fromkeys(_SPEC_AC_RE.findall(spec_text)))
+
+
+def lint_self_check(text: str, ac_ids: list[str]) -> list[str]:
+    """One problem per AC id with no self-check line, and per line missing a command or result."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if re.match(r"^[ \t]*\**Self-check:\**[ \t]*$", line)), None)
+    if start is None:
+        return ["no `Self-check:` block — one line `<AC-id>: <command> → <result>` per AC"]
+    found: dict[str, tuple[str, str]] = {}
+    for line in lines[start + 1 :]:
+        if not line.strip():
+            break
+        match = _SELF_CHECK_LINE_RE.match(line)
+        if match:
+            found.setdefault(match.group(1), (match.group(2), match.group(3)))
+    problems = []
+    for ac in ac_ids:
+        if ac not in found:
+            problems.append(f"self-check missing for {ac}")
+        elif not found[ac][0]:
+            problems.append(f"self-check for {ac} has no command — name what you ran")
+        elif not found[ac][1]:
+            problems.append(f"self-check for {ac} has no result — give the command's outcome")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    ac_ids: list[str] | None = None
+    if len(argv) == 3 and argv[0] == "--spec":
+        ac_ids = spec_ac_ids(Path(argv[1]).read_text(encoding="utf-8"))
+        if not ac_ids:
+            print(f"handback-lint: {argv[1]} has no AC rows (`| AC1 |` …) — nothing to check against", file=sys.stderr)
+            return 2
+        argv = argv[2:]
     if len(argv) != 1:
-        print("usage: handback_lint.py <file>|-", file=sys.stderr)
+        print("usage: handback_lint.py [--spec <spec>] <file>|-", file=sys.stderr)
         return 2
     text = sys.stdin.read() if argv[0] == "-" else Path(argv[0]).read_text(encoding="utf-8")
 
     problems = lint(text)
+    if ac_ids is not None:
+        problems += lint_self_check(text, ac_ids)
     if not problems:
+        if ac_ids is not None:
+            print(f"handback-lint: self-check lines present for all {len(ac_ids)} AC(s).")
         print("handback-lint: clean — `Could not reach:` and `Substituted:` both filled.")
         print("LIMIT: presence only, never truth. Read the diff.")
         return 0

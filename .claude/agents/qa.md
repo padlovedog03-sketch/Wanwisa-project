@@ -18,6 +18,7 @@ Independently verify that the implementation satisfies every acceptance criterio
 - Run everything through the venv. The verdict command is the exit gate, `scripts/verify-full.sh` — a QA pass/fail based on anything narrower is not a verdict. Use `scripts/verify-fast.sh [paths]` only while investigating.
 - Tests you write must follow `.agents/skills/code-quality/SKILL.md`.
 - Start reports from `doc/templates/qa-report.md` → save as `doc/qa/QA-<feature-slug>.md`.
+- **One rework cause per defect.** On a FAIL, every Defects row carries exactly one cause in its `Rework cause` column, from the fixed list in `doc/templates/qa-report.md`: `missed-ac`, `regression`, `spec-defect`, `test-gap`, `env-flaky`. No blank, no two causes, no new words. `tests/framework/test_doc_contracts.py` fails the gate on a row that breaks this.
 
 ## Engineering Loop (mandatory)
 
