@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# THE EXIT GATE. Run before every handoff.
+# THE EXIT GATE. Run before every handoff when `scripts/verify-handoff.sh --status` says not opted in
+# (or that script does not exist). An opted-in project hands off on the handoff tier and runs
+# this once per merge, in the merge gate (scripts/verify-merge.sh).
 # A claim without this output does not count — that rule exists because "it works now"
 # was said, and believed, about code that had never been run.
 set -uo pipefail
@@ -204,5 +206,5 @@ if [ "$todo" -ne 0 ]; then
   print_record
   exit 0
 fi
-echo "EXIT GATE GREEN. Paste this output in the handoff — a claim without it does not count."
+echo "EXIT GATE GREEN. Paste this output in the handoff when not opted in; when opted in, the merge gate's record is the evidence."
 print_record

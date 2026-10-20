@@ -116,7 +116,7 @@ change, which is why that rule alone is not enough.
    file exists for. Where the suite carries a failure that predates the slice, the tier compares the
    failure set for **exact equality** against a named allowlist, so that an extra failure is red AND
    an allowlisted one that starts passing is red — a "known failures, ignore them" message goes stale
-   and eventually talks someone out of a real red. **The coordinator runs the full suite once, at the end of the wave.**
+   and eventually talks someone out of a real red. **The coordinator runs the full suite once, at the end of the wave** — in an opted-in project that one run is the merge gate, `scripts/verify-merge.sh`, on a runner the agents cannot edit.
    Name every pre-existing failure, with its test id, in the brief — otherwise the agent spends real
    work proving a red is not its own.
 3. **Facts measured this turn and pasted into the brief are authoritative for that dispatch.** Say so,

@@ -154,3 +154,40 @@
 # carries a person's name, is never recorded.
 #
 # VERIFY_RUNNER_ID
+
+# ---- the merge gate (scripts/verify-merge.sh) ---------------------------------------
+# One full run per merge candidate, in a fresh worktree of the candidate commit,
+# bound to that commit's tree and to the machine that ran it. It reads THIS file
+# as committed in the candidate (so commit it), plus the environment; a copy
+# edited in a working tree is never read. It ends in exactly one of:
+#   MERGE GATE GREEN — tree <hash> — runner <id>     exit 0
+#   MERGE GATE RED …                                 exit 1
+#   MERGE GATE NOT RUN — <reason>                    exit 3, never green
+# GREEN needs VERIFY_TEST_STEPS and VERIFY_COLLECT_CMD above: without
+# executed == collected the merge gate is NOT RUN, although verify-full stays GREEN.
+# A verify-full that is INCOMPLETE (a step still TODO) is NOT RUN too.
+#
+# Where it runs:
+#   runner          a CI runner that sets VERIFY_RUNNER_ID in its own environment;
+#                   the agent cannot edit that machine. Preferred.
+#   local-fallback  this machine, in the background:
+#                     mkdir -p .verify/merge && nohup scripts/verify-merge.sh HEAD > .verify/merge/last.log 2>&1 &
+#                   Every line ends "(local fallback — weaker: same machine and same
+#                   user as the agent)".
+#   none            no merge gate; every run is NOT RUN. The default.
+#
+# VERIFY_MERGE_GATE=runner
+# VERIFY_MERGE_GATE=local-fallback
+# VERIFY_MERGE_GATE=none
+#
+# VERIFY_RUNNER_ID is never set in this file: the merge gate refuses a conf that
+# sets it (NOT RUN), because this file lives in the repo the agent edits. With
+# VERIFY_MERGE_GATE=runner and no VERIFY_RUNNER_ID in the environment, the gate is
+# NOT RUN; it never falls back to the local machine quietly.
+#
+# A record a runner wrote (CI runs verify-full.sh with VERIFY_RUNNER_ID set) is
+# re-checked against a candidate with:
+#   scripts/verify-merge.sh --check <record> <ref>
+# A record for another tree, one naming no runner, or one from the handoff or fast
+# tier is NOT RUN. LIMIT: a record is a file; --check proves it matches the
+# candidate, not who wrote it, so take it from the runner's own artifacts.

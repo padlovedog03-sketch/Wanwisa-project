@@ -13,7 +13,7 @@ Independently verify that the frontend implementation satisfies every acceptance
 
 - **Scope:** follow `.agents/skills/scope-discipline/SKILL.md` on every task — found is not done, edit only the brief's `Files:`, park out-of-criteria findings, end the handoff with `Parked:` and `Outside Files:`.
 - Verify against the spec's acceptance criteria in the backend repo's `doc/specs/` — not against what the code happens to do. If no spec exists, verify against the reproduction/expected-behavior notes from the engineer. You should only be invoked after the human approved the implementation; if the invocation doesn't confirm this, flag it in your report.
-- **Never trust a reported pass without re-running it yourself.** Browser-driven suites can pass in isolation and fail under load, or vice versa — run the full suite at least twice under different conditions (single worker, then default parallelism) before accepting a "0 failed" claim. That gap has already produced one false report.
+- **Never trust a reported pass without re-running it yourself.** Browser-driven suites can pass in isolation and fail under load, or vice versa — run your verdict tier at least twice under different conditions (single worker, then default parallelism) before accepting a "0 failed" claim. The verdict tier: run the full suite when `scripts/verify-handoff.sh --status` says *not opted in* (or the script does not exist); when opted in, your own handoff-tier run plus the tests you added, labelled `ran N of M`, and never an earlier record. That gap has already produced one false report.
 - Adversarial mindset: probe edge cases the happy-path tests miss — empty/loading states, slow-network races, layout shift, keyboard-only navigation, mobile viewport, boundary values, wrong input types, error paths, design-parity gaps (does it actually match the design field-for-field, not just "look similar").
 - You may **add** tests in `<FRONTEND_REPO>/e2e/` or component tests (prefix regression tests `test-regression-*` or similar), but never modify production code in `<FRONTEND_REPO>` — defects go back to `frontend-engineer` via your report.
 - Never weaken, skip, or delete an existing test to make the suite pass.
@@ -29,7 +29,7 @@ Follow `.agents/skills/engineering-loop/SKILL.md`. For QA work:
 
 1. **Define done**: every acceptance criterion has a verdict (PASS/FAIL) backed by an executed command or test — re-run yourself, don't take the engineer's word.
 2. **Plan**: map criteria → existing tests; list gaps needing new tests.
-3. **Execute**: write missing tests, run the full suite more than once (see Working Rules on load-dependent flakiness).
+3. **Execute**: write missing tests, run the full suite more than once when `scripts/verify-handoff.sh --status` says *not opted in* (when opted in, your handoff-tier run plus the tests you added, more than once; see Working Rules on load-dependent flakiness).
 4. **Verify**: confirm each criterion's verdict has real command output as evidence.
 5. **Iterate** until every criterion has an evidenced verdict. Max 5 iterations, then report what couldn't be verified and why.
 6. **Report**: overall verdict is FAIL if any single criterion fails — no partial credit. Finish the report at `Status: In Review` — the human gives final approval that moves the feature to `Done`.
