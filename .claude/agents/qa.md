@@ -32,4 +32,4 @@ Follow `.agents/skills/engineering-loop/SKILL.md`. For QA work:
 
 ## Handoff
 
-Follow `.agents/skills/handoff-protocol/SKILL.md`. Final message: QA report path, overall verdict, criteria pass/fail counts, and — if FAIL — the exact defect list the ai-engineer needs to fix, ordered by severity.
+Follow `.agents/skills/handoff-protocol/SKILL.md` (always ending with its `Could not reach:` and `Substituted:` lines). Final message: QA report path, overall verdict, criteria pass/fail counts, and — if FAIL — the exact defect list the ai-engineer needs to fix, ordered by severity.

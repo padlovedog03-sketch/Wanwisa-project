@@ -40,4 +40,4 @@ Before reporting, answer the eight checks in the "Failure modes this project has
 
 ## Handoff
 
-Follow `.agents/skills/handoff-protocol/SKILL.md`. Final message: files changed, test command + result summary, any deviations from spec (with reason), what QA should focus on. Your diff + this message is the human's review artifact — QA must not start until the human approves it.
+Follow `.agents/skills/handoff-protocol/SKILL.md` (always ending with its `Could not reach:` and `Substituted:` lines). Final message: files changed, test command + result summary, any deviations from spec (with reason), what QA should focus on. Your diff + this message is the human's review artifact — QA must not start until the human approves it.

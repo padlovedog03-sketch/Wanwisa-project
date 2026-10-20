@@ -68,7 +68,7 @@ esac
 # (scripts/coordinator_lint.py) has its own grammar checks that a touch to
 # the checker or its contract has to re-earn.
 case " $* " in
-  *"scripts/coordinator_lint.py"* | *"tests/coordinator"* | *"doc/framework/COORDINATOR-CONSTITUTION.md"*)
+  *"scripts/coordinator_lint.py"* | *"scripts/handback_lint.py"* | *"tests/coordinator"* | *"doc/framework/COORDINATOR-CONSTITUTION.md"*)
     echo "== coordinator-constitution tests"
     python3 -m pytest tests/coordinator/ -q
     ;;

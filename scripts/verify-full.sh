@@ -31,7 +31,8 @@ STEPS=(
   # Proves scripts/coordinator_lint.py (the mechanically-checked half of the
   # Coordinator Constitution, NORTH-STAR mechanism ๓) still catches an
   # untagged count claim, a truncating MEASURED: command, an untagged
-  # instruction, and a missing SELF-REPORT: block.
+  # instruction, and a missing SELF-REPORT: block; and scripts/handback_lint.py
+  # still catches a handback missing Could not reach: / Substituted:.
   "coordinator|python3 -m pytest tests/coordinator/ -q"
   # Open-standard layout and portability (RUNTIME-CONTRACT criteria 1-4):
   # provider names stay out of layers 0-1, project memory keeps its

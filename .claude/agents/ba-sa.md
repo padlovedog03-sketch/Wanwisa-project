@@ -36,4 +36,4 @@ Loop until all pass. Max 5 iterations, then report blockers.
 
 ## Handoff
 
-Follow `.agents/skills/handoff-protocol/SKILL.md`. Final message: spec + design file paths, traceability summary (N requirements → M criteria), design decisions worth human review.
+Follow `.agents/skills/handoff-protocol/SKILL.md` (always ending with its `Could not reach:` and `Substituted:` lines). Final message: spec + design file paths, traceability summary (N requirements → M criteria), design decisions worth human review.

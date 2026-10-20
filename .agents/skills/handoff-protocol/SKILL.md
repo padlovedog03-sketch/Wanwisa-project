@@ -54,3 +54,10 @@ Your final message when finishing a task must contain:
 2. **Evidence**: verification results (from the engineering loop).
 3. **Assumptions**: anything you decided that the human or next agent should know.
 4. **Next step**: which agent should act next and on what input.
+5. **Could not reach**: every file, service, access right or tool you needed and did not have — or `none`.
+6. **Substituted**: everything you mocked, stubbed or guessed in place of the real thing, and why — or `none`.
+
+Fields 5-6 exist because a workaround done in silence reads exactly like a clean result
+(`doc/framework/WHY.md` §2). If something you need is missing, the default is **stop and name it** —
+never substitute it silently. `none` is a valid answer; an empty or missing field is not. The
+coordinator checks the shape with `python3 scripts/handback_lint.py -` (presence only, never truth).

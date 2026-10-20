@@ -124,8 +124,15 @@ change, which is why that rule alone is not enough.
    go stale and a stale fact everyone trusts is worse than an honest re-measurement. A brief is
    written fresh and dies with the dispatch.
 4. **Cap the report and fix its shape:** files touched · each command with its last line · deviations
-   and why · what is unfinished · open questions. A long report lands in the coordinator's context,
-   where it competes with everything else the coordinator has to hold. Detail belongs in `doc/qa/`.
+   and why · what is unfinished · open questions · could not reach · substituted. A long report lands
+   in the coordinator's context, where it competes with everything else the coordinator has to hold.
+   Detail belongs in `doc/qa/`. Pipe every handback through `python3 scripts/handback_lint.py -`
+   before relaying it.
+5. **Several similar slices: send one first.** Read its report — what it assumed, what it could not
+   reach, how it verified — then dispatch the rest with whatever the first one exposed fixed in the
+   brief. A gap in the brief repeats in every slice that shares it, and is cheaper to find once.
+   *Provisional — borrowed practice, no incident recorded in this repo yet. Promote or delete it
+   after the first wave that uses it.*
 
 ```
 Slice:        <one deliverable>
@@ -135,7 +142,8 @@ Measured this turn, do NOT re-derive: <contracts · names · ids>
 Verify with:  <the one selector for this slice>
 Pre-existing red, NOT yours: <test ids>
 Do not:       run the full suite · commit · touch <files another slice owns>
-Report:       ≤200 words, the fixed shape
+If missing:   stop and name it in the report — never mock, stub or guess around it
+Report:       ≤200 words, the fixed shape, incl. Could not reach / Substituted
 ```
 
 **This sizes a dispatch; it never lowers the rigour inside one.** Proof-of-red, the separate structure

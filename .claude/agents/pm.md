@@ -33,4 +33,4 @@ Loop until all six pass. Max 5 iterations; if still failing, report exactly whic
 
 ## Handoff
 
-Follow `.agents/skills/handoff-protocol/SKILL.md`. Your final message must state: PRD file path, backlog changes, key assumptions made, and open questions for the human. End by noting the PRD is `In Review` and awaits human approval before BA/SA can start.
+Follow `.agents/skills/handoff-protocol/SKILL.md` (always ending with its `Could not reach:` and `Substituted:` lines). Your final message must state: PRD file path, backlog changes, key assumptions made, and open questions for the human. End by noting the PRD is `In Review` and awaits human approval before BA/SA can start.

@@ -34,4 +34,4 @@ Follow `.agents/skills/engineering-loop/SKILL.md`. For QA work:
 
 ## Handoff
 
-Follow `.agents/skills/handoff-protocol/SKILL.md`. Final message: QA report path (in the backend repo's `doc/qa/`), overall verdict, criteria pass/fail counts, and — if FAIL — the exact defect list `frontend-engineer` needs to fix, ordered by severity, each with reproduction steps.
+Follow `.agents/skills/handoff-protocol/SKILL.md` (always ending with its `Could not reach:` and `Substituted:` lines). Final message: QA report path (in the backend repo's `doc/qa/`), overall verdict, criteria pass/fail counts, and — if FAIL — the exact defect list `frontend-engineer` needs to fix, ordered by severity, each with reproduction steps.
