@@ -84,11 +84,11 @@ repo แยกที่เขียนได้เฉพาะคน
 2. git-ignore ทุกไฟล์ที่เทสต์เขียนออกมา — ต้นไม้เปลี่ยนระหว่างรันคือแดง
 3. ตั้ง `VERIFY_TEST_STEPS` และ `VERIFY_COLLECT_CMD` — ถ้าไม่นับ executed == collected ประตูรวมตอบ `MERGE GATE NOT RUN`
 4. เลือกที่รันประตูรวม:
-   - `VERIFY_MERGE_GATE=runner` — **แนะนำ** เครื่องรันของ CI ตั้ง `VERIFY_RUNNER_ID` ใน env ของมันเอง (ตัวอย่างใน `ci-examples/` ทำไว้ที่ด่าน 2 แล้ว) เอเจนต์แก้เครื่องนั้นไม่ได้
+   - `VERIFY_MERGE_GATE=runner` — **แนะนำ** เครื่องรันของ CI ตั้ง `VERIFY_RUNNER_ID` ใน env ของมันเอง และต้องเอาโค้ดด่าน (`verify-full.sh` `verify_record.py` `verify.conf`) จากสาขาฐานมาวางทับก่อนรัน ไม่ใช้ของคอมมิตที่ตรวจ (ตัวอย่างใน `ci-examples/` ทำทั้งสองอย่างไว้ที่ด่าน 2 แล้ว และพิมพ์ `note:` เมื่อคอมมิตแก้โค้ดด่าน) เอเจนต์แก้เครื่องนั้นไม่ได้
    - `VERIFY_MERGE_GATE=local-fallback` — รันเบื้องหลังในเครื่องเดียวกัน: `mkdir -p .verify/merge && nohup scripts/verify-merge.sh HEAD > .verify/merge/last.log 2>&1 &` (ถ้าเครื่องมือมีงานเบื้องหลังที่แจ้งเตือนเมื่อจบ ให้สั่งผ่านช่องนั้น จะได้ไม่ต้องวนเช็ค) ผลจะลงท้ายว่า `(local fallback — weaker: same machine and same user as the agent)` **อ่อนกว่า** เพราะเครื่องเดียวกันและผู้ใช้คนเดียวกับเอเจนต์
    - `VERIFY_MERGE_GATE=none` — ค่าเริ่มต้น ประตูรวมตอบ `MERGE GATE NOT RUN` ทุกครั้ง ไม่มีวันเป็น GREEN
 5. ตั้ง `VERIFY_HANDOFF_TIER=on` — จากนี้ `scripts/verify-handoff.sh --status` ตอบ `opted in` และกฎ "ชุดเต็มก่อนส่งมอบ" เปลี่ยนเป็นชั้นส่งมอบ + ประตูรวม
-6. ลองจริง: `scripts/verify-merge.sh HEAD` ต้องจบด้วย `MERGE GATE GREEN — tree … — runner …` · บันทึกที่เครื่องรันเขียน ตรวจกับคอมมิตด้วย `scripts/verify-merge.sh --check <record> <ref>` — บันทึกของต้นไม้อื่น หรือไม่ระบุเครื่องรัน ได้ `NOT RUN`
+6. ลองจริง: `scripts/verify-merge.sh HEAD` ต้องจบด้วย `MERGE GATE GREEN — tree … — runner …` · บันทึกที่เครื่องรันเขียน ตรวจกับคอมมิตด้วย `scripts/verify-merge.sh --check <record> <ref>` — บันทึกต้องเป็นของต้นไม้ที่ตรวจจริง คือต้นไม้ของคอมมิตที่มีโค้ดด่านของสาขาฐานอยู่ข้างใน บันทึกของต้นไม้อื่น (รวมทั้งบันทึกที่รันด้วยโค้ดด่านของคอมมิตเอง) หรือไม่ระบุเครื่องรัน ได้ `NOT RUN` · คำขอรวมที่เข้าสาขาอื่นที่ไม่ใช่ `main` ให้ตั้ง `VERIFY_MERGE_BASE_REF=origin/<สาขานั้น>` ตอนตรวจ ไม่งั้นเทียบกับโค้ดด่านของ `main`
 
 ---
 

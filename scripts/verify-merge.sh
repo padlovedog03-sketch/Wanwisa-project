@@ -38,6 +38,14 @@
 # the runner's trusted checkout of the base is a gate.
 # LIMIT: VERIFY_RUNNER_ID and VERIFY_MERGE_BASE_REF come from the environment,
 # so whoever runs the gate can set them; `runner <id>` names where it says it ran.
+# LIMIT: the candidate's own test code (a conftest.py, a test step) runs with the
+# gate's privileges: it can rewrite the recorder mid-run or write a fake JUnit
+# with matching counts. The control is reviewing the candidate's test diff.
+#
+# The gate's Python runs isolated (`python3 -I`), so a module the candidate adds
+# (scripts/fnmatch.py, a root json.py) is never imported in place of the stdlib.
+# --check binds a record to the tree a runner judges: the candidate's, with the
+# base's gate code in it, as CI gate 2 checks it out before running verify-full.
 set -uo pipefail
 ORIG_PWD="$(pwd)"
 cd "$(dirname "$0")/.." || exit 3
@@ -71,7 +79,7 @@ want="$(git rev-parse "${sha}^{tree}")"
 # The judge: one place that turns a record into the one banner line. Inputs are
 # arguments; it never trusts the record's shape and never prints a traceback.
 judge() {
-  python3 - "$@" <<'PY'
+  python3 -I - "$@" <<'PY'
 import json, sys
 
 args = dict(a.split("=", 1) for a in sys.argv[1:])
@@ -120,9 +128,11 @@ tree = rec.get("tree") if isinstance(rec.get("tree"), dict) else {}
 before, after = tree.get("before"), tree.get("after")
 # A main run judged the candidate's tree with the base's gate code in it.
 judged = args.get("judged", args["want"])
-if before != judged:
+# A merge record names the candidate's tree as `before` and the judged one apart.
+seen = tree.get("judged", before) if tier == "merge" else before
+if seen != judged:
     nr("record is for tree %s, %s tree %s" % (
-        before, "candidate is" if judged == args["want"] else "judged", judged), rec)
+        seen, "candidate is" if judged == args["want"] else "judged", judged), rec)
 if main_run:
     # Bound to the candidate's own tree: after == before stays the same test.
     bound = {"before": args["want"], "after": args["want"] if after == before else after,
@@ -161,12 +171,6 @@ done("GREEN", "MERGE GATE GREEN" + tail, 0, rec, runner)
 PY
 }
 
-if [ -n "$check_mode" ]; then
-  judge "record=$record" "want=$want"
-  exit $?
-fi
-
-# ---- run: a fresh worktree of the candidate ----------------------------------
 # The gate code comes from the base ref, resolved once like the candidate.
 if [ -n "${VERIFY_MERGE_BASE_REF:-}" ]; then
   base_ref="$VERIFY_MERGE_BASE_REF"
@@ -177,6 +181,23 @@ else
   done
 fi
 [ -n "$base_sha" ] || not_run "no base ref to take the gate code from"
+gate_files="scripts/verify-full.sh scripts/verify_record.py scripts/verify.conf"
+
+if [ -n "$check_mode" ]; then
+  # The tree a runner judges, hashed in a scratch index: the candidate's, with
+  # the base's gate code in it (a gate file the base lacks is not in it).
+  idx_dir="$(mktemp -d "${TMPDIR:-/tmp}/merge-gate.XXXXXX")" || not_run "cannot create a temporary directory"
+  trap 'rm -rf "$idx_dir"' EXIT
+  judged="$(export GIT_INDEX_FILE="$idx_dir/index"
+    git read-tree "$sha" &&
+      git update-index --force-remove -- $gate_files &&
+      git ls-tree "$base_sha" -- $gate_files | git update-index --index-info &&
+      git write-tree)" || not_run "could not hash the tree to be judged"
+  judge "record=$record" "want=$want" "judged=$judged"
+  exit $?
+fi
+
+# ---- run: a fresh worktree of the candidate ----------------------------------
 base="$(mktemp -d "${TMPDIR:-/tmp}/merge-gate.XXXXXX")" || not_run "cannot create a temporary directory"
 wt="$base/merge-gate-$sha"
 cleanup() {
@@ -188,7 +209,6 @@ trap cleanup EXIT
 git worktree add --detach --quiet "$wt" "$sha" >/dev/null 2>&1 || not_run "could not create a worktree of $sha"
 
 # The base's gate code replaces the candidate's; a file the base lacks is removed.
-gate_files="scripts/verify-full.sh scripts/verify_record.py scripts/verify.conf"
 changed=""
 from_sha="$(git merge-base "$base_sha" "$sha" 2>/dev/null)" || from_sha="$base_sha"
 for f in $gate_files; do

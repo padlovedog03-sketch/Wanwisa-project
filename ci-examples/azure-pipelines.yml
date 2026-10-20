@@ -71,7 +71,23 @@ steps:
       APPROVAL_REGISTRY: $(APPROVAL_REGISTRY)
 
   # ด่าน 2 — ประตูออกของโปรเจกต์ (ตั้งค่าภาษา/เครื่องมือให้ตรงกับทีมก่อนขั้นนี้)
-  - script: ./scripts/verify-full.sh
+  # โค้ดด่าน (verify-full.sh ตัวบันทึก verify_record.py และ verify.conf) มาจากสาขาฐาน
+  # ไม่ใช่จากคอมมิตที่ตรวจ — คอมมิตจึงตัดสินตัวเองด้วยด่านที่มันเขียนเองไม่ได้
+  - script: |
+      set -euo pipefail
+      target="${SYSTEM_PULLREQUEST_TARGETBRANCH:-refs/heads/main}"
+      target="${target#refs/heads/}"
+      base="origin/$target"
+      git fetch -q origin "+refs/heads/$target:refs/remotes/$base"
+      from="$(git merge-base "$base" HEAD)"
+      changed=""
+      for f in scripts/verify-full.sh scripts/verify_record.py scripts/verify.conf; do
+        git diff --quiet "$from" HEAD -- "$f" || changed=1
+        if git cat-file -e "$base:$f" 2>/dev/null; then git checkout -q "$base" -- "$f"
+        else git rm -q --ignore-unmatch -- "$f"; fi
+      done
+      [ -z "$changed" ] || echo "note: this candidate changes the gate code — judged with $base's copy; review the gate diff"
+      ./scripts/verify-full.sh
     displayName: 'ประตูออก'
     env:
       # บันทึกการรันระบุเครื่องรันนี้ ประตูรวมจึงผูกผลกับเครื่องที่เอเจนต์แก้ไม่ได้

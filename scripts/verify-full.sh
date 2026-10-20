@@ -107,7 +107,7 @@ for entry in "${STEPS[@]}"; do cmd_args+=("--step=${entry}"); done
 # --lf, -x, retries, cached results and undeclared filters can each report success
 # while executing nothing; refused before any step runs. A step whose flags are
 # not scanned (a runner other than pytest) is named on a `limit:` line.
-python3 scripts/verify_record.py check-banned ${allow_args[@]+"${allow_args[@]}"} \
+python3 -I scripts/verify_record.py check-banned ${allow_args[@]+"${allow_args[@]}"} \
   ${runner_args[@]+"${runner_args[@]}"} "--extra=${VERIFY_EXTRA_BANNED:-}" \
   "--test-steps=${VERIFY_TEST_STEPS:-}" "${cmd_args[@]}"
 ban_rc=$?
@@ -116,7 +116,7 @@ if [ "$ban_rc" -ne 0 ]; then
   echo "EXIT GATE RED — recorder failed (check-banned exit ${ban_rc})"
   exit 1
 fi
-TREE_BEFORE="$(python3 scripts/verify_record.py tree-hash)"
+TREE_BEFORE="$(python3 -I scripts/verify_record.py tree-hash)"
 collect_args=()
 if [ -n "${VERIFY_COLLECT_CMD:-}" ]; then
   eval "$VERIFY_COLLECT_CMD" >"$RUN_DIR/collect.txt" 2>"$RUN_DIR/collect.err"
@@ -166,8 +166,8 @@ done
 
 # Counts, tree identity, budgets and the record. The recorder's last line is
 # VERDICT=<v>; anything else (it crashed) is RED, never a silent pass.
-TREE_AFTER="$(python3 scripts/verify_record.py tree-hash)"
-summary="$(python3 scripts/verify_record.py finalize --tier full --run-dir "$RUN_DIR" \
+TREE_AFTER="$(python3 -I scripts/verify_record.py tree-hash)"
+summary="$(python3 -I scripts/verify_record.py finalize --tier full --run-dir "$RUN_DIR" \
   --started-at "$STARTED_AT" --tree-before "$TREE_BEFORE" --tree-after "$TREE_AFTER" \
   ${conf_present:+"$conf_present"} ${collect_args[@]+"${collect_args[@]}"} \
   ${allow_args[@]+"${allow_args[@]}"})"

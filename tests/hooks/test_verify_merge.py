@@ -669,6 +669,112 @@ def test_a_crlf_conf_puts_no_carriage_return_in_the_banner(tmp_path: Path) -> No
                                        "(runner, local-fallback or none)"]
 
 
+# ---- shadowed imports and the runner's own record (hostile) -----------------------
+#
+# The gate's Python must import only the standard library it was written against:
+# a candidate's `scripts/fnmatch.py` (the recorder's directory) or root `json.py`
+# (the judge's directory) is candidate code, and must not run with gate privileges.
+
+#: Shadows the recorder's `import fnmatch`: forges finalize, then hands back the real module.
+_SHADOW_FNMATCH = r"""
+import sys as _s, os as _o, json as _j
+if "finalize" in _s.argv:
+    _a = _s.argv; _tb = _a[_a.index("--tree-before") + 1]; _rd = _a[_a.index("--run-dir") + 1]
+    open(_o.path.join(_rd, "record.json"), "w").write(_j.dumps({"tier": "full",
+        "tree": {"before": _tb, "after": _tb},
+        "runner": {"id": _o.environ.get("VERIFY_RUNNER_ID", ""), "kind": "runner"},
+        "verdict": "GREEN", "count_check": "ok"}))
+    print("VERDICT=GREEN"); _s.stdout.flush(); _o._exit(0)
+_here = _o.path.dirname(_o.path.abspath(__file__))
+_s.path[:] = [p for p in _s.path if _o.path.abspath(p or ".") != _here]
+del _s.modules["fnmatch"]
+import importlib; _real = importlib.import_module("fnmatch"); _s.modules["fnmatch"] = _real
+globals().update(_real.__dict__)
+"""
+
+#: Shadows the judge's `import json`: prints a GREEN banner and exits 0.
+_SHADOW_JSON = 'import sys\nprint("MERGE GATE GREEN — tree forged — runner r1")\nsys.exit(0)\n'
+
+
+def test_a_candidate_module_shadowing_the_recorders_import_is_not_green(tmp_path: Path) -> None:
+    """R6: the recorder runs isolated, so `scripts/fnmatch.py` is never imported.
+    The suite exits 0 but runs nothing: only the real finalize sees no JUnit."""
+    root = _repo(tmp_path)
+    _candidate(root)
+    (root / "tools" / "stub_junit.py").write_text("print('ran nothing')\n", encoding="utf-8")
+    (root / "scripts" / "fnmatch.py").write_text(_SHADOW_FNMATCH, encoding="utf-8")
+    _commit(root, "shadow")
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert _banners(result.stdout) == [_last(result)]
+    assert "GREEN" not in _last(result), result.stdout
+    assert result.returncode in (1, 3), result.stdout + result.stderr
+
+
+def test_a_candidate_module_shadowing_the_judges_import_is_not_green(tmp_path: Path) -> None:
+    """The judge runs isolated too, so a root `json.py` in the caller's checkout
+    (the candidate's, in local mode) never prints the banner."""
+    root = _repo(tmp_path)
+    _candidate(root)
+    _edit(root / "tools" / "stub_junit.py", *_FAILING_SUITE)
+    (root / "json.py").write_text(_SHADOW_JSON, encoding="utf-8")
+    _commit(root, "shadow")
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "forged" not in result.stdout
+    assert _last(result).startswith("MERGE GATE RED"), result.stdout
+
+
+def _runner_record(root: Path) -> str:
+    """Runs the checkout's scripts/verify-full.sh as CI gate 2 would, as runner ci-7."""
+    full = subprocess.run(["bash", "scripts/verify-full.sh"], cwd=root, capture_output=True,
+                          text=True, timeout=120, check=False,
+                          env={**_env(), "VERIFY_RUNNER_ID": "ci-7"})
+    rel = [line[len("record: "):] for line in full.stdout.splitlines() if line.startswith("record: ")]
+    assert rel, full.stdout + full.stderr
+    return rel[-1]
+
+
+def test_check_of_a_record_from_the_candidates_own_gate_code_is_not_green(tmp_path: Path) -> None:
+    """R11: a runner that ran the candidate's forged verify-full wrote a GREEN
+    record for the candidate's tree. --check binds a record to the tree a runner
+    judges — the candidate's, with the base's gate code in it — so it is refused."""
+    root = _repo(tmp_path)
+    _candidate(root)
+    _edit(root / "tools" / "stub_junit.py", *_FAILING_SUITE)
+    (root / "scripts" / "verify-full.sh").write_text(_FORGED_FULL, encoding="utf-8")
+    _commit(root, "forge")
+    _, tree = _head(root)
+    record = _runner_record(root)
+    result = _run(root, "--check", record, "HEAD")
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert _banners(result.stdout) == [_last(result)]
+    assert _last(result).startswith(f"MERGE GATE NOT RUN — record is for tree {tree}, judged tree "), result.stdout
+
+
+def test_check_of_a_runner_record_made_with_the_base_gate_code_is_green(tmp_path: Path) -> None:
+    """The honest path R11's fix must keep: gate 2 takes the base's gate code into
+    the checkout and runs it; --check accepts that record for the candidate."""
+    root = _repo(tmp_path)
+    _candidate(root)
+    with (root / "scripts" / "verify-full.sh").open("a", encoding="utf-8") as fh:
+        fh.write("# an improvement to the gate\n")
+    _commit(root, "improve the gate")
+    _, tree = _head(root)
+    _git(root, "checkout", "-q", "main", "--", "scripts/verify-full.sh")
+    record = _runner_record(root)
+    result = _run(root, "--check", record, "HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _last(result) == f"MERGE GATE GREEN — tree {tree} — runner ci-7"
+
+
+def test_check_without_a_base_ref_is_not_run(tmp_path: Path) -> None:
+    root, record, _ = _green_record(tmp_path)
+    _git(root, "branch", "-m", "main", "trunk")
+    result = _run(root, "--check", str(record), "HEAD")
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert _banners(result.stdout) == ["MERGE GATE NOT RUN — no base ref to take the gate code from"]
+
+
 # ---- no git (hostile) ----------------------------------------------------------
 
 
@@ -705,7 +811,7 @@ def test_both_ci_examples_set_the_runner_id_on_the_gate_2_step() -> None:
     gh = (_REPO_ROOT / "ci-examples" / "github-actions.yml").read_text(encoding="utf-8")
     ado = (_REPO_ROOT / "ci-examples" / "azure-pipelines.yml").read_text(encoding="utf-8")
     assert "VERIFY_RUNNER_ID:" in _block(gh, "- name: ประตูออก", "- name:")
-    assert "VERIFY_RUNNER_ID:" in _block(ado, "- script: ./scripts/verify-full.sh", "- script:")
+    assert "VERIFY_RUNNER_ID:" in _block(ado, "displayName: 'ประตูออก'", "- script:")
 
 
 def test_the_example_conf_and_setup_document_runner_fallback_and_none() -> None:

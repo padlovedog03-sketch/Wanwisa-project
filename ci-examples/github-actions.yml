@@ -89,13 +89,28 @@ jobs:
       # ---------------------------------------------------------------
       # ด่าน 2 — ประตูออกของโปรเจกต์
       # ตั้งค่าภาษา/เครื่องมือให้ตรงกับทีมก่อน (uses: actions/setup-*)
+      # โค้ดด่าน (verify-full.sh ตัวบันทึก verify_record.py และ verify.conf) มาจาก
+      # สาขาฐาน ไม่ใช่จากคอมมิตที่ตรวจ — คอมมิตจึงตัดสินตัวเองด้วยด่านที่มันเขียนเองไม่ได้
       # ---------------------------------------------------------------
       - name: ประตูออก
-        run: ./scripts/verify-full.sh
         env:
+          BASE_BRANCH: ${{ github.base_ref || 'main' }}
           # บันทึกการรันระบุเครื่องรันนี้ ประตูรวมจึงผูกผลกับเครื่องที่เอเจนต์แก้ไม่ได้
           # (ตรวจซ้ำกับคอมมิต: scripts/verify-merge.sh --check <record> <ref>)
           VERIFY_RUNNER_ID: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          base="origin/$BASE_BRANCH"
+          git fetch -q origin "+refs/heads/$BASE_BRANCH:refs/remotes/$base"
+          from="$(git merge-base "$base" HEAD)"
+          changed=""
+          for f in scripts/verify-full.sh scripts/verify_record.py scripts/verify.conf; do
+            git diff --quiet "$from" HEAD -- "$f" || changed=1
+            if git cat-file -e "$base:$f" 2>/dev/null; then git checkout -q "$base" -- "$f"
+            else git rm -q --ignore-unmatch -- "$f"; fi
+          done
+          [ -z "$changed" ] || echo "note: this candidate changes the gate code — judged with $base's copy; review the gate diff"
+          ./scripts/verify-full.sh
 
       # ---------------------------------------------------------------
       # ด่าน 3 — ห้ามมีตัวยึดหลงเหลือในไฟล์ที่ไม่ใช่ template
