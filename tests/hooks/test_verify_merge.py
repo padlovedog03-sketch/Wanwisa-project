@@ -4,8 +4,9 @@ Spec: doc/specs/SPEC-verify-tiers-merge-gate.md (D-AC1 … D-AC5, D-AC8).
 Design: doc/architecture/DESIGN-verify-tiers-merge-gate.md §D.
 
 `scripts/verify-merge.sh` checks out the candidate commit in a fresh
-`git worktree`, runs that commit's own `verify-full.sh` there, and binds the
-verdict to the candidate's tree and to the machine that ran it. It never says
+`git worktree`, replaces its gate code (`verify-full.sh`, `verify_record.py`,
+`verify.conf`) with the base ref's copies, runs the full tier there, and binds
+the verdict to the candidate's tree and to the machine that ran it. It never says
 GREEN unless the full run was GREEN, counted executed == collected, judged
 exactly the candidate's tree and names a runner.
 
@@ -61,7 +62,9 @@ def _repo(tmp_path: Path, conf: str | None = _CONF) -> Path:
     (root / ".gitignore").write_text(".verify/\n__pycache__/\n", encoding="utf-8")
     if conf is not None:
         (root / "scripts" / "verify.conf").write_text(conf, encoding="utf-8")
+    # `main` by name, whatever init.defaultBranch says: it is the default base ref.
     _git(root, "init", "-q")
+    _git(root, "symbolic-ref", "HEAD", "refs/heads/main")
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "-m", "init")
     return root
@@ -499,6 +502,171 @@ def test_a_record_line_pointing_outside_the_run_is_not_trusted(tmp_path: Path) -
     result = _run(root, env={"VERIFY_RUNNER_ID": "runner-7"})
     assert result.returncode == 1
     assert _last(result).startswith("MERGE GATE RED — verify-full.sh exited 0 and wrote no readable record")
+
+
+# ---- the candidate never judges itself with gate code it wrote (hostile) ---------
+#
+# Each case puts the candidate on a branch, so `main` (the default base ref) keeps
+# the honest gate code. The forgeries pair a broken suite with gate code that hides
+# it: before the base's copy was used, each of them printed MERGE GATE GREEN.
+
+_NOTE = "note: this candidate changes the gate code — judged with main's copy; review the gate diff"
+_FAILING_SUITE = ("passed, failed, skipped = (int(x) for x in pos[:3])\n",
+                  "passed, failed, skipped = (int(x) for x in pos[:3])\nfailed = 1\n")
+_SHORT_SUITE = ("passed, failed, skipped = (int(x) for x in pos[:3])\n",
+                "passed, failed, skipped = (int(x) for x in pos[:3])\npassed -= 1\n")
+
+#: The reviewer's forgery: runs nothing, writes a GREEN full record for HEAD's tree.
+_FORGED_FULL = r"""#!/usr/bin/env bash
+t=$(git rev-parse HEAD^{tree}); d=.verify/runs/forged; mkdir -p $d
+printf '{"tier":"full","tree":{"before":"%s","after":"%s"},"runner":{"id":"%s","kind":"runner"},"verdict":"GREEN","count_check":"ok"}' "$t" "$t" "$VERIFY_RUNNER_ID" > $d/record.json
+echo "EXIT GATE GREEN."; echo "record: $d/record.json"
+"""
+
+
+def _candidate(root: Path) -> None:
+    _git(root, "checkout", "-q", "-b", "candidate")
+
+
+def _edit(path: Path, old: str, new: str) -> None:
+    body = path.read_text(encoding="utf-8")
+    assert body.count(old) == 1, old
+    path.write_text(body.replace(old, new), encoding="utf-8")
+
+
+def test_forged_candidate_verify_full(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _candidate(root)
+    _edit(root / "tools" / "stub_junit.py", *_FAILING_SUITE)
+    (root / "scripts" / "verify-full.sh").write_text(_FORGED_FULL, encoding="utf-8")
+    _commit(root, "forge")
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _banners(result.stdout) == [_last(result)]
+    assert _last(result).startswith("MERGE GATE RED"), result.stdout
+    assert _NOTE in result.stdout
+    assert "FAIL tests" in result.stdout  # the real suite ran, and failed
+
+
+def test_forged_candidate_recorder(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _candidate(root)
+    _edit(root / "tools" / "stub_junit.py", *_SHORT_SUITE)  # 2 of 3 tests reported
+    _edit(root / "scripts" / "verify_record.py", "elif reported_total != collected:", "elif False:")
+    _commit(root, "forge")
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _last(result).startswith("MERGE GATE RED"), result.stdout
+    assert "reported 2 of 3 collected" in result.stdout
+    assert _NOTE in result.stdout
+
+
+def test_forged_candidate_conf(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _candidate(root)
+    shutil.copy(root / "tools" / "stub_junit.py", root / "tools" / "stub_ok.py")
+    _edit(root / "tools" / "stub_junit.py", *_FAILING_SUITE)
+    _edit(root / "scripts" / "verify.conf", "tools/stub_junit.py", "tools/stub_ok.py")
+    _commit(root, "forge")
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _last(result).startswith("MERGE GATE RED"), result.stdout
+    assert _NOTE in result.stdout
+
+
+def test_a_conf_the_base_lacks_is_not_taken_from_the_candidate(tmp_path: Path) -> None:
+    root = _repo(tmp_path, conf=None)
+    _candidate(root)
+    (root / "scripts" / "verify.conf").write_text(_CONF, encoding="utf-8")
+    _commit(root, "opt in")
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert _last(result) == "MERGE GATE NOT RUN — no runner and no local fallback configured"
+
+
+def test_a_candidate_that_deletes_verify_full_is_judged_by_the_base_copy(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _candidate(root)
+    (root / "scripts" / "verify-full.sh").unlink()
+    _commit(root, "delete the gate")
+    _, tree = _head(root)
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _last(result) == f"MERGE GATE GREEN — tree {tree} — runner r1"
+    assert "counts: reported 3 of 3 collected" in result.stdout
+    assert _NOTE in result.stdout
+
+
+def test_a_legitimate_gate_change_is_green_bound_to_the_candidates_tree(tmp_path: Path) -> None:
+    """The base's gate runs, so the tree it judged is not the candidate's; the
+    banner, the record and --check still name the candidate's own HEAD^{tree}."""
+    root = _repo(tmp_path)
+    base_sha = _git(root, "rev-parse", "main")
+    _candidate(root)
+    with (root / "scripts" / "verify-full.sh").open("a", encoding="utf-8") as fh:
+        fh.write("# an improvement to the gate\n")
+    _commit(root, "improve the gate")
+    sha, tree = _head(root)
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[-1] == f"MERGE GATE GREEN — tree {tree} — runner r1"
+    assert lines.index(_NOTE) < len(lines) - 1
+    record = _merge_record(root, sha)
+    assert record["tree"]["before"] == record["tree"]["after"] == tree
+    assert record["tree"]["judged"] != tree
+    assert record["gate_code"] == {"base_ref": "main", "base_commit": base_sha,
+                                   "changed_by_candidate": ["scripts/verify-full.sh"]}
+    check = _run(root, "--check", f".verify/merge/{sha}.json", "HEAD")
+    assert _banners(check.stdout) == [f"MERGE GATE GREEN — tree {tree} — runner r1"]
+
+
+def test_an_unchanged_gate_prints_no_note(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _candidate(root)
+    (root / "feature.txt").write_text("x\n", encoding="utf-8")
+    _commit(root, "feature")
+    sha, tree = _head(root)
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "note:" not in result.stdout
+    assert _merge_record(root, sha)["tree"]["judged"] == tree
+
+
+@pytest.mark.parametrize("how", ["named-ref-missing", "no-main"])
+def test_no_base_ref_is_not_run(tmp_path: Path, how: str) -> None:
+    root = _repo(tmp_path)
+    env = {"VERIFY_RUNNER_ID": "r1"}
+    if how == "named-ref-missing":
+        env["VERIFY_MERGE_BASE_REF"] = "no-such-base"
+    else:
+        _git(root, "branch", "-m", "main", "trunk")
+    result = _run(root, "HEAD", env=env)
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert _banners(result.stdout) == ["MERGE GATE NOT RUN — no base ref to take the gate code from"]
+
+
+def test_a_named_base_ref_supplies_the_gate_code(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _git(root, "branch", "release")
+    _candidate(root)
+    (root / "scripts" / "verify-full.sh").write_text(_FORGED_FULL, encoding="utf-8")
+    _edit(root / "tools" / "stub_junit.py", *_FAILING_SUITE)
+    _commit(root, "forge")
+    _git(root, "branch", "-f", "main", "candidate")  # main itself is compromised
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1", "VERIFY_MERGE_BASE_REF": "release"})
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _last(result).startswith("MERGE GATE RED")
+    assert "judged with release's copy" in result.stdout
+
+
+def test_a_crlf_conf_puts_no_carriage_return_in_the_banner(tmp_path: Path) -> None:
+    root = _repo(tmp_path, _CONF.replace("\n", "\r\n"))
+    result = _run(root, "HEAD", env={"VERIFY_RUNNER_ID": "r1"})
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "\r" not in result.stdout
+    assert _banners(result.stdout) == ["MERGE GATE NOT RUN — unknown VERIFY_MERGE_GATE=runner\\r "
+                                       "(runner, local-fallback or none)"]
 
 
 # ---- no git (hostile) ----------------------------------------------------------

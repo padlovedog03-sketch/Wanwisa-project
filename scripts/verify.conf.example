@@ -157,9 +157,14 @@
 
 # ---- the merge gate (scripts/verify-merge.sh) ---------------------------------------
 # One full run per merge candidate, in a fresh worktree of the candidate commit,
-# bound to that commit's tree and to the machine that ran it. It reads THIS file
-# as committed in the candidate (so commit it), plus the environment; a copy
-# edited in a working tree is never read. It ends in exactly one of:
+# bound to that commit's tree and to the machine that ran it. The gate code --
+# verify-full.sh, verify_record.py and THIS file -- is taken from the base ref
+# (VERIFY_MERGE_BASE_REF in the environment; default origin/main, else main;
+# neither: NOT RUN), never from the candidate: a candidate cannot judge itself
+# with gate code it wrote. So commit this file on the base branch; a copy in a
+# working tree or only on the candidate's branch is never read. A candidate that
+# changes the gate code is judged with the base's copy and gets a `note:` line;
+# its change takes effect once it is merged. It ends in exactly one of:
 #   MERGE GATE GREEN — tree <hash> — runner <id>     exit 0
 #   MERGE GATE RED …                                 exit 1
 #   MERGE GATE NOT RUN — <reason>                    exit 3, never green
