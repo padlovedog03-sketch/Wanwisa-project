@@ -34,7 +34,7 @@ def _clone_template(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     repo = tmp_path / "repo"
     repo.mkdir()
     ignore = shutil.ignore_patterns("__pycache__", "*.local.txt")
-    for rel in (".githooks", "scripts", "doc/memory", "doc/scars", "doc/templates"):
+    for rel in (".githooks", ".agents", "scripts", "doc/memory", "doc/scars", "doc/templates"):
         if (_REPO_ROOT / rel).is_dir():
             shutil.copytree(_REPO_ROOT / rel, repo / rel, ignore=ignore)
     (repo / "AGENTS.md").write_text("# AGENTS.md — <PROJECT>\nrules\n", encoding="utf-8")
