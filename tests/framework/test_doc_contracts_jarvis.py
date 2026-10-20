@@ -169,6 +169,9 @@ def test_agents_md_stays_provider_neutral() -> None:
         [sys.executable, str(_REPO_ROOT / "scripts" / "check_neutrality.py")],
         capture_output=True, text=True, timeout=120, check=False,
     )
+    if result.returncode == 0 and result.stdout.startswith("SKIP:"):
+        # A bootstrapped project may name its own stack; the checker says so itself.
+        pytest.skip(result.stdout.strip())
     assert result.returncode == 0 and "0 provider name(s)" in result.stdout, result.stdout + result.stderr
 
 
