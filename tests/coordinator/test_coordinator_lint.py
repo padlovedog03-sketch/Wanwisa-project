@@ -432,3 +432,89 @@ def test_the_brief_template_carries_every_field_rule_6_requires() -> None:
 
     assert _rule6(template + "\n" + _SELF_REPORT) == [], template
     assert "\nREWORK:" in template, template
+
+
+# ---------------------------------------------------------------------------
+# Rule 7 (SPEC-delegated-autonomy E-AC4, R20): an engineer brief written under
+# autonomy (a filled `Under:` line) carries the impact map — `Impact:` from the
+# spec's affected-files section and `Selected:` from `verify-handoff.sh --list`.
+# Opt-in: a brief with no `Under:` is not judged (spec impact table row 19).
+# ---------------------------------------------------------------------------
+
+_UNDER_BRIEF = (
+    _FULL_BRIEF
+    + "Under:        mandate mandate-demo-tests-2026-10-20\n"
+    + "Impact:       tests/coordinator/test_coordinator_lint.py · scripts/coordinator_lint.py\n"
+    + "Selected:     tests/coordinator/test_coordinator_lint.py\n"
+)
+
+
+def _rule7(text: str) -> list[cl.Violation]:
+    return [v for v in cl.lint(text) if v.rule == "7"]
+
+
+def test_a_full_brief_under_autonomy_is_clean() -> None:
+    assert _rule7(_UNDER_BRIEF + "\n" + _SELF_REPORT) == []
+
+
+@pytest.mark.parametrize("field", ["Impact:", "Selected:"])
+def test_a_brief_under_autonomy_missing_a_field_is_flagged(field: str) -> None:
+    violations = _rule7(_without(field, _UNDER_BRIEF) + "\n" + _SELF_REPORT)
+
+    assert len(violations) == 1, violations
+    assert repr(field) in violations[0].reason
+    assert violations[0].line_no == 1
+
+
+@pytest.mark.parametrize("field", ["Impact:", "Selected:"])
+def test_an_empty_field_under_autonomy_is_flagged(field: str) -> None:
+    brief = "".join(
+        (field + "\n") if line.startswith(field) else line + "\n" for line in _UNDER_BRIEF.splitlines()
+    )
+    assert len(_rule7(brief + "\n" + _SELF_REPORT)) == 1
+
+
+@pytest.mark.parametrize("field", ["Impact:", "Selected:"])
+def test_unavailable_with_a_reason_is_accepted_until_the_sources_ship(field: str) -> None:
+    brief = "".join(
+        f"{field} unavailable (verify-handoff.sh not shipped)\n" if line.startswith(field) else line + "\n"
+        for line in _UNDER_BRIEF.splitlines()
+    )
+    assert _rule7(brief + "\n" + _SELF_REPORT) == []
+
+
+@pytest.mark.parametrize("value", ["unavailable", "unavailable ()", "unavailable (  )", "Unavailable", "unavailable because"])
+@pytest.mark.parametrize("field", ["Impact:", "Selected:"])
+def test_unavailable_without_a_reason_is_flagged(field: str, value: str) -> None:
+    brief = "".join(
+        f"{field} {value}\n" if line.startswith(field) else line + "\n" for line in _UNDER_BRIEF.splitlines()
+    )
+    violations = _rule7(brief + "\n" + _SELF_REPORT)
+    assert len(violations) == 1, violations
+    assert "unavailable (<reason>)" in violations[0].reason
+
+
+def test_a_brief_with_no_under_line_is_not_judged_by_rule_7() -> None:
+    """Opt-in: today's briefs carry no impact map and must stay clean."""
+    assert _rule7(_FULL_BRIEF + "\n" + _SELF_REPORT) == []
+
+
+def test_an_empty_under_line_does_not_switch_rule_7_on() -> None:
+    assert _rule7(_FULL_BRIEF + "Under:\n\n" + _SELF_REPORT) == []
+
+
+def test_an_impact_line_in_another_brief_does_not_count() -> None:
+    """Each `Slice:` block is judged on its own lines."""
+    second = _without("Impact:", _without("Selected:", _UNDER_BRIEF)).replace("rule 6 in", "rule 7 in")
+    text = _UNDER_BRIEF + "\n" + second + "\n" + _SELF_REPORT
+
+    violations = _rule7(text)
+
+    assert len(violations) == 2, violations
+    assert {v.line_no for v in violations} == {_UNDER_BRIEF.count("\n") + 2}
+
+
+@pytest.mark.parametrize("prefix", ["  ", "- ", "1. "])
+def test_an_indented_or_bulleted_brief_under_autonomy_is_judged(prefix: str) -> None:
+    assert _rule7(_prefixed(prefix, _UNDER_BRIEF) + "\n" + _SELF_REPORT) == []
+    assert len(_rule7(_prefixed(prefix, _without("Impact:", _UNDER_BRIEF)) + "\n" + _SELF_REPORT)) == 1

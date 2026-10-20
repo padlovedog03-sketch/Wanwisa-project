@@ -306,12 +306,59 @@ def check_briefs(text: str) -> list[Violation]:
     return violations
 
 
+#: Rule 7 (SPEC-delegated-autonomy E-AC4, R20): the impact map an engineer
+#: brief written under autonomy must carry, with where each value comes from.
+_IMPACT_FIELDS = (
+    ("Impact:", "the spec's \"Affected tests / affected files\""),
+    ("Selected:", "the output of `verify-handoff.sh --list`"),
+)
+#: Until verify-tiers B and H ship, a source may be unavailable — but only
+#: with a stated reason, so the gap stays visible.
+_UNAVAILABLE_RE = re.compile(r"unavailable\b(.*)$", re.IGNORECASE)
+_UNAVAILABLE_WITH_REASON_RE = re.compile(r"unavailable \(\s*\S[^()]*\)", re.IGNORECASE)
+
+
+def _impact_value_problem(value: str | None) -> str | None:
+    if not value:
+        return "is missing or empty"
+    if _UNAVAILABLE_RE.match(value) and not _UNAVAILABLE_WITH_REASON_RE.fullmatch(value):
+        return "says unavailable with no reason — write `unavailable (<reason>)`"
+    return None
+
+
+def check_impact(text: str) -> list[Violation]:
+    """Rule 7: a `Slice:` block with a filled `Under:` line (work under a
+    mandate or order) must carry a filled `Impact:` and `Selected:` line.
+    Opt-in like R20 itself: a brief with no `Under:` is not judged."""
+    lines = text.splitlines()
+    starts = [i for i, line in enumerate(lines) if _brief_field_value(line, "Slice:") is not None]
+    violations: list[Violation] = []
+    for n, start in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        block = lines[start:end]
+        if not any(_brief_field_value(line, "Under:") for line in block):
+            continue
+        for field, source in _IMPACT_FIELDS:
+            value = next((v for v in (_brief_field_value(line, field) for line in block) if v is not None), None)
+            problem = _impact_value_problem(value)
+            if problem:
+                violations.append(
+                    Violation(
+                        rule="7",
+                        line_no=start + 1,
+                        reason=f"brief under autonomy: {field!r} {problem} — take it from {source}",
+                    )
+                )
+    return violations
+
+
 def lint(text: str, base_dir: Path = _REPO_ROOT) -> list[Violation]:
     return (
         check_claims(text)
         + check_instructions(text, base_dir)
         + check_self_report(text)
         + check_briefs(text)
+        + check_impact(text)
     )
 
 

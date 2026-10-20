@@ -6,10 +6,21 @@ start when its upstream spec is not `Approved`. That was prose, and prose does
 not fail. This blocks the spawn instead.
 
 **Scope is deliberately narrow.** Only `ai-engineer` and `frontend-engineer` are
-gated. Gating `Explore`, `qa`, `ba-sa`, `pm`, `Plan` or `general-purpose` would
-block ordinary investigation, and a guard with false positives gets switched off
+gated on a spec, and only `qa` and `frontend-qa` on a review (below). Gating
+`Explore`, `ba-sa`, `pm`, `Plan`, `reviewer` or `general-purpose` would block
+ordinary investigation, and a guard with false positives gets switched off
 — that is the documented reason Set 1's `guard_bash.py` had to be rewritten from
 substring matching to command-position matching.
+
+**The review gate (SPEC-delegated-autonomy E-AC2, R19, D5 — all work, not opt-in).**
+A `qa` or `frontend-qa` spawn needs `doc/qa/REVIEW-<slug>.md` with a PASS
+`Verdict:` and a `Reviewer-run:` different from its `Author-run:`. The slug is
+each `REVIEW-*.md` the prompt names, or else each `SPEC-<slug>.md` it names;
+`NO_SPEC_BUGFIX:` work must name a `REVIEW-bugfix-<id>.md`. The engineer's
+override token never opens this gate. STATED LIMIT: different run IDs prove two
+runs, not that the reviewer ignored the author's conversation — that part is the
+`reviewer` agent definition's instruction. A prompt that explicitly names a
+REVIEW file is taken at its word about which review covers the work.
 
 **Fail-closed, with an explicit override.** When the prompt names no spec the
 spawn is blocked, because a warning on a spawn is useless: by the time anyone
@@ -33,10 +44,24 @@ from __future__ import annotations
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
-# Only the two implementer types. Everything else passes through untouched.
+# Only the two implementer types are gated on a spec.
 _GATED_SUBAGENT_TYPES = frozenset({"ai-engineer", "frontend-engineer"})
+
+# Only the two QA types are gated on a review (E-AC2). Everything else passes.
+_REVIEW_GATED_SUBAGENT_TYPES = frozenset({"qa", "frontend-qa"})
+_REVIEW_DIR = "doc/qa"
+_REVIEW_TEMPLATE = "doc/templates/review-report.md"
+_BUGFIX_REVIEW_PREFIX = "REVIEW-bugfix-"
+_REVIEW_REFERENCE_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])(REVIEW-[A-Za-z0-9._-]+\.md)")
+_SPEC_SLUG_PATTERN = re.compile(r"(?<![A-Za-z0-9._-])SPEC-([A-Za-z0-9._-]+)\.md")
+# `Verdict:` as a plain line, a heading or bold — never inside another line,
+# so a decorated `Status: Done (Verdict: PASS)` is not read as one.
+_VERDICT_LINE_PATTERN = re.compile(r"^[ \t]*(?:#+[ \t]*)?(?:\*\*)?Verdict(?:\*\*)?[ \t]*:(?:\*\*)?(.*)$", re.MULTILINE)
+_PASS_VALUE_PATTERN = re.compile(r"PASS(?:[ \t]*\([^()|]*\))?")
+_RUN_LINE = r"^[ \t]*(?:\*\*)?{field}(?:\*\*)?[ \t]*:(?:\*\*)?(.*)$"
 
 # The override, and what it must carry. A bare token would be a rubber stamp;
 # requiring a reproduction line makes the claim checkable by a human reader.
@@ -88,6 +113,71 @@ def _block(message: str) -> None:
     sys.exit(2)
 
 
+def _normalise_run_id(value: str) -> str:
+    """A run ID as compared: NFKC, no whitespace or invisible format characters,
+    case-folded — so `A111`, ` a111 ` and `a<zero-width>111` all equal `a111`."""
+    value = unicodedata.normalize("NFKC", value)
+    value = "".join(ch for ch in value if not ch.isspace() and unicodedata.category(ch) != "Cf")
+    return value.casefold()
+
+
+def _review_problem(path: Path) -> str | None:
+    """Why the review at `path` does not open the QA gate, or None if it does.
+    Never raises: a crash exits 1, and only exit 2 blocks."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "not found"
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"unreadable ({type(exc).__name__})"
+    if not text.strip():
+        return "empty"
+    verdicts = [v.replace("*", "").strip() for v in _VERDICT_LINE_PATTERN.findall(text)]
+    if not verdicts:
+        return "no `Verdict:` line"
+    for verdict in verdicts:
+        if "FAIL" in verdict.upper() or not _PASS_VALUE_PATTERN.fullmatch(verdict):
+            return f"Verdict is {verdict!r}, not PASS"
+    run_ids = {}
+    for field in ("Author-run", "Reviewer-run"):
+        match = re.search(_RUN_LINE.format(field=field), text, re.MULTILINE)
+        value = _normalise_run_id(match.group(1).replace("*", "")) if match else ""
+        if not value or value.startswith("<"):
+            return f"no filled `{field}:` line"
+        run_ids[field] = value
+    if run_ids["Author-run"] == run_ids["Reviewer-run"]:
+        return "`Reviewer-run:` equals `Author-run:` — the author cannot grade its own work"
+    return None
+
+
+def _check_review(subagent_type: str, prompt: str) -> None:
+    """E-AC2: block a QA spawn that has no independent PASS review. Exits."""
+    named = list(dict.fromkeys(_REVIEW_REFERENCE_PATTERN.findall(prompt)))
+    if _OVERRIDE_TOKEN in prompt:
+        required = [name for name in named if name.startswith(_BUGFIX_REVIEW_PREFIX)]
+        wanted = f"{_REVIEW_DIR}/{_BUGFIX_REVIEW_PREFIX}<id>.md"
+    else:
+        required = named or [f"REVIEW-{slug}.md" for slug in dict.fromkeys(_SPEC_SLUG_PATTERN.findall(prompt))]
+        wanted = f"{_REVIEW_DIR}/REVIEW-<slug>.md (or the SPEC it reviews)"
+    if not required:
+        problems = [f"the prompt names no {wanted}"]
+    else:
+        root = _repo_root()
+        problems = []
+        for name in required:
+            problem = _review_problem(root / _REVIEW_DIR / name)
+            if problem:
+                problems.append(f"{_REVIEW_DIR}/{name}: {problem}")
+    if not problems:
+        sys.exit(0)
+    _block(
+        f"BLOCKED (.claude/hooks/guard_agent_spawn.py, R19): `{subagent_type}` needs an "
+        f"independent review first — {'; '.join(problems)}. Spawn the `reviewer` agent to write it "
+        f"from {_REVIEW_TEMPLATE} with `Verdict: PASS` and a `Reviewer-run:` different from "
+        f"`Author-run:`, then name it in this prompt."
+    )
+
+
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
@@ -99,10 +189,12 @@ def main() -> None:
 
     tool_input = payload.get("tool_input") or {}
     subagent_type = str(tool_input.get("subagent_type") or "")
+    prompt = str(tool_input.get("prompt") or "")
+    # Before the override and the engineer check: neither may open this gate.
+    if subagent_type in _REVIEW_GATED_SUBAGENT_TYPES:
+        _check_review(subagent_type, prompt)
     if subagent_type not in _GATED_SUBAGENT_TYPES:
         sys.exit(0)
-
-    prompt = str(tool_input.get("prompt") or "")
 
     # Override path first, so a legitimate small bugfix is never blocked by a
     # spec-resolution detail.
@@ -132,8 +224,8 @@ def main() -> None:
             f"  2. if this is a small bugfix that legitimately has no spec "
             f"(AGENTS.md §6), add `{_OVERRIDE_TOKEN} <one-line reproduction>` so "
             f"the basis is on the record.\n"
-            f"Only `ai-engineer` and `frontend-engineer` are gated — `qa`, "
-            f"`ba-sa`, `pm`, `Explore` and the rest are never blocked."
+            f"Only `ai-engineer` and `frontend-engineer` are gated on a spec — "
+            f"`ba-sa`, `pm`, `Explore`, `reviewer` and the rest are never blocked."
         )
 
     root = _repo_root()

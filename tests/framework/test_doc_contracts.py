@@ -339,3 +339,69 @@ def test_engineering_loop_labels_the_turn_saving_as_unproven() -> None:
     text = _loop()
     assert "The saving is unproven" in text
     assert "M14" in text
+
+
+# ---------------------------------------------------------------------------
+# SPEC-delegated-autonomy E-AC3 (R19) — the independent reviewer is a role,
+# has a report template, and sits between engineer and qa in every tier.
+# ---------------------------------------------------------------------------
+
+_REVIEWER = _AGENTS / "reviewer.md"
+_REVIEW_TEMPLATE = _REPO_ROOT / "doc" / "templates" / "review-report.md"
+
+
+def test_the_reviewer_agent_exists_with_frontmatter() -> None:
+    text = _REVIEWER.read_text(encoding="utf-8")
+    assert re.search(r"\A---\nname: reviewer\ndescription: \S", text), text[:200]
+
+
+def test_the_reviewer_starts_from_the_files_never_the_authors_conversation() -> None:
+    mission = _REVIEWER.read_text(encoding="utf-8").split("## Mission", 1)[1].split("\n## ", 1)[0]
+    assert "starts from the files" in mission
+    assert "never from the author's conversation" in mission
+
+
+def test_the_reviewer_records_its_own_run_and_states_the_limit() -> None:
+    text = _REVIEWER.read_text(encoding="utf-8")
+    assert "Reviewer-run:" in text and "Author-run:" in text
+    assert "doc/templates/review-report.md" in text
+    assert "LIMIT" in text
+
+
+@pytest.mark.parametrize(
+    "line",
+    [r"Status: \S", r"Upstream: \S", r"Author-run: \S", r"Reviewer-run: \S", r"(?:## )?Verdict: PASS \| FAIL"],
+)
+def test_the_review_template_carries_the_lines_the_spawn_gate_reads(line: str) -> None:
+    text = _REVIEW_TEMPLATE.read_text(encoding="utf-8")
+    assert re.search(rf"^{line}", text, re.M), f"doc/templates/review-report.md lacks {line!r}"
+
+
+def _tier_rows(agents_md: str) -> list[str]:
+    """The tier rows of the AGENTS.md §5 table, with backticks removed."""
+    section = agents_md.split("\n## 5.", 1)[1].split("\n## 6.", 1)[0]
+    return [line.replace("`", "") for line in section.splitlines() if re.match(r"^\| \*\*\d", line)]
+
+
+def _ordered(row: str, steps: tuple[str, ...]) -> bool:
+    position = 0
+    for step in steps:
+        found = re.search(rf"(?<![\w-]){re.escape(step)}(?![\w-])", row[position:])
+        if not found:
+            return False
+        position += found.end()
+    return True
+
+
+def test_agents_md_shows_engineer_then_reviewer_then_qa_in_every_tier() -> None:
+    rows = _tier_rows((_REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+    assert len(rows) == 3, rows
+    for row in rows:
+        assert _ordered(row, ("engineer", "reviewer", "qa")), row
+
+
+def test_the_tier_row_check_rejects_a_row_with_reviewer_after_qa() -> None:
+    """The ordering check has teeth: qa before reviewer is not the R19 flow."""
+    assert not _ordered("| **1** | x | engineer → qa → reviewer |", ("engineer", "reviewer", "qa"))
+    assert not _ordered("| **1** | x | engineer → frontend-qa |", ("engineer", "reviewer", "qa"))
+    assert _ordered("| **2** | x | pm → engineer → reviewer → 👤 → qa → 👤 |", ("engineer", "reviewer", "qa"))
