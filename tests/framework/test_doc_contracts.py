@@ -339,3 +339,45 @@ def test_engineering_loop_labels_the_turn_saving_as_unproven() -> None:
     text = _loop()
     assert "The saving is unproven" in text
     assert "M14" in text
+
+
+# ---------------------------------------------------------------------------
+# Increment G (G-AC5, G-AC6; R26, R27, R28) — no hand-written polling.
+# ---------------------------------------------------------------------------
+
+
+def _cells(letter: str, prefix: str) -> list[str]:
+    rows = [r for r in _capability_rows(_adapter_section(letter)) if r.startswith(prefix)]
+    assert len(rows) == 1, f"adapter {letter}: expected one {prefix!r} row, found {len(rows)}"
+    return [cell.strip() for cell in rows[0].strip().strip("|").split(" | ")]
+
+
+def test_adapter_a_enforces_r26_and_has_a_completion_notification() -> None:
+    """G-AC5 (R27): adapter ก."""
+    assert "R26 polling guard: enforced" in _cells("ก", "| R26 ")[1]
+    assert "completion notification: yes" in _cells("ก", "| R27 ")[1]
+
+
+def test_adapter_b_declares_no_r26_enforcement_its_fallback_and_what_is_weaker() -> None:
+    """G-AC5 (R27, R28): adapter ข names the fallback and what it loses."""
+    _, has, fallback, weaker = _cells("ข", "| R26 ")
+    assert "R26: no enforcement" in has
+    assert "engineering-loop/SKILL.md" in fallback and "R37" in fallback
+    assert weaker not in ("", "—")
+
+
+def test_adapter_b_declares_no_completion_notification_and_its_substitute() -> None:
+    """G-AC5 (R28): the substitute is a foreground run with the tool's own timeout."""
+    _, has, substitute, weaker = _cells("ข", "| R27 ")
+    assert "completion notification: no" in has
+    assert "foreground" in substitute and "timeout" in substitute
+    assert weaker not in ("", "—")
+
+
+def test_engineering_loop_carries_the_waiting_rule() -> None:
+    """G-AC6 (R28)."""
+    text = _loop()
+    assert "## Waiting on background work" in text
+    assert "**Never poll.**" in text
+    assert "end your turn or do independent work until the completion notification arrives" in text
+    assert "doc/framework/ADAPTERS.md" in text
