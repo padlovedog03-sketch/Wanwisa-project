@@ -104,7 +104,7 @@ def test_regression_ordinary_agent_types_are_never_gated_on_a_review(subagent_ty
 def test_regression_a_copied_but_unfilled_template_keeps_qa_shut(review_file) -> None:
     review_file(f"REVIEW-{_UNDER_TEST}.md", _TEMPLATE.read_text(encoding="utf-8"))
 
-    result = _run_gate("qa", f"Verify doc/specs/SPEC-{_UNDER_TEST}.md.")
+    result = _run_gate("qa", f"Verify doc/specs/SPEC-{_UNDER_TEST}.md.\nReview: doc/qa/REVIEW-{_UNDER_TEST}.md")
 
     assert result.returncode == _EXIT_BLOCK, result.stdout
     assert "PASS | FAIL" in result.stderr
@@ -114,7 +114,7 @@ def test_regression_a_copied_but_unfilled_template_keeps_qa_shut(review_file) ->
 def test_regression_every_review_block_is_one_line_naming_the_file_and_the_bad_value(review_file, verdict) -> None:
     review_file(f"REVIEW-{_UNDER_TEST}.md", _review(_UNDER_TEST, verdict))
 
-    result = _run_gate("frontend-qa", f"Verify doc/specs/SPEC-{_UNDER_TEST}.md.")
+    result = _run_gate("frontend-qa", f"Verify doc/specs/SPEC-{_UNDER_TEST}.md.\nReview: doc/qa/REVIEW-{_UNDER_TEST}.md")
 
     lines = [line for line in result.stderr.splitlines() if line.strip()]
     assert result.returncode == _EXIT_BLOCK
