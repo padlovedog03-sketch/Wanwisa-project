@@ -32,11 +32,15 @@ registry without checking whether the human meant it.
 Usage:
     python3 scripts/coordinator_lint.py <file>
     python3 scripts/coordinator_lint.py -            # read stdin
+    python3 scripts/coordinator_lint.py --approve-ready <slug> [<slug>…]
+        # before handing the owner an approve.sh command: every document the
+        # slugs name is committed, clean against HEAD and `In Review`
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -362,8 +366,70 @@ def lint(text: str, base_dir: Path = _REPO_ROOT) -> list[Violation]:
     )
 
 
+#: SPEC-jarvis-coordinator JC-AC11. Resolved as `scripts/approve.py` resolves
+#: (its DOC_DIRS, `.md`, slug in the filename, case-insensitive) — copied, not
+#: imported, because the approval mechanism is out of this spec's scope.
+_APPROVABLE_DIRS = ("doc/requirements", "doc/specs", "doc/architecture", "doc/qa", "doc/tasks")
+_STATUS_LINE_RE = re.compile(r"^Status: (.+)$", re.MULTILINE)
+_APPROVE_READY_USAGE = "usage: coordinator_lint.py --approve-ready <slug> [<slug>…]"
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=60)
+
+
+def approve_ready(slugs: list[str], root: Path) -> tuple[int, list[str]]:
+    """Whether every document the slugs name is committed, clean against HEAD
+    and `In Review` — the state approve.sh needs. Returns (exit code, lines):
+    0 with the approve.sh command, or 1 with one line per problem."""
+    tracked = sorted(
+        rel
+        for rel in _git(root, "ls-files", "--", "doc").stdout.splitlines()
+        if rel.endswith(".md") and any(rel.startswith(f"{d}/") for d in _APPROVABLE_DIRS)
+    )
+    problems: list[str] = []
+    for slug in slugs:
+        matches = [rel for rel in tracked if slug.lower() in Path(rel).name.lower()]
+        if not matches:
+            problems.append(f"no tracked document matches '{slug}' — git add and commit it")
+        for rel in matches:
+            if _git(root, "cat-file", "-e", f"HEAD:{rel}").returncode != 0:
+                problems.append(f"{rel}: not committed — commit before handing over approve.sh")
+            elif _git(root, "diff", "--quiet", "HEAD", "--", rel).returncode != 0:
+                problems.append(f"{rel}: uncommitted changes — commit before handing over approve.sh")
+            else:
+                found = _STATUS_LINE_RE.findall((root / rel).read_text(encoding="utf-8"))
+                if found != ["In Review"]:
+                    shown = ", ".join(found) or "(none)"
+                    problems.append(f"{rel}: Status is '{shown}', approve.sh accepts only In Review")
+    if problems:
+        return 1, problems
+    return 0, [f"scripts/approve.sh {' '.join(slugs)} --by <name>"]
+
+
+def _approve_ready_main(slugs: list[str]) -> int:
+    if not slugs or any(not slug.strip() for slug in slugs):
+        print(_APPROVE_READY_USAGE, file=sys.stderr)
+        return 2
+    try:
+        top = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=60
+        )
+    except FileNotFoundError:
+        print("coordinator-lint: git not found on PATH", file=sys.stderr)
+        return 2
+    if top.returncode != 0:
+        print("coordinator-lint: not inside a git work tree", file=sys.stderr)
+        return 2
+    code, lines = approve_ready(slugs, Path(top.stdout.strip()))
+    print("\n".join(lines))
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["--approve-ready"]:
+        return _approve_ready_main(argv[1:])
     if len(argv) != 1:
         print("usage: coordinator_lint.py <file>|-", file=sys.stderr)
         return 2

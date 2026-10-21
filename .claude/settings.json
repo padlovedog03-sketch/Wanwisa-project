@@ -1,4 +1,5 @@
 {
+  "agent": "jarvis",
   "permissions": {
     "deny": [
       "Bash(git push --force*)",
@@ -55,6 +56,16 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_report_background.py\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/inject_jarvis.py\""
           }
         ]
       }
