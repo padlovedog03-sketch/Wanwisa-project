@@ -1,6 +1,7 @@
 # SPEC: Amendment 1 — `Files:` may be a list (JC-AC6), and one stale refusal sentence
 
-Status: In Review
+Status: Approved
+Approval: spec-jarvis-coordinator-am1-files-list-2026-10-21
 Owner: ba-sa
 Upstream: doc/specs/SPEC-jarvis-coordinator.md (Approved, registry key `spec-jarvis-coordinator-2026-10-20`) · doc/qa/REVIEW-jarvis-coordinator.md (reviewer PASS, "Spec-level finding" and the first Parked item; the file is untracked in the main tree at the time of writing) · owner ruling 2026-10-21: "ตามคำแนะนำ เน้นใช้งานง่าย"
 Date: 2026-10-21
@@ -125,6 +126,7 @@ That is 2 requirements and 1 ruling, mapping to 3 criteria.
 
 ## Approval history
 
+- **2026-10-21 — approved (human).** Registry key `spec-jarvis-coordinator-am1-files-list-2026-10-21`, carried on the canonical `Approval:` line above.
 <!-- scripts/approve.sh writes the approval entry here. Leave this heading in
      place: approve.py REFUSES any document that lacks it. -->
 
