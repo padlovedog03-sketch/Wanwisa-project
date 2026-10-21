@@ -79,6 +79,10 @@ _ROLE_AGENTS = frozenset(
 )
 _TIER_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Tier"), re.MULTILINE)
 _FILES_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Files"), re.MULTILINE)
+# JC-AM1: an empty `Files:` may be followed by a list of paths. A list item, and
+# a label (`Verify with:`, `**Criteria:**`) that ends the list rather than naming a path.
+_LIST_ITEM_PATTERN = re.compile(r"^[ \t]*(?:[-*]|\d+\.)(?:[ \t]+(.*))?$")
+_LABEL_PATTERN = re.compile(r"^(?:\*\*)?[A-Za-z][A-Za-z ]*(?:\*\*)?[ \t]*:")
 _SUBJECT_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Slice|Spec"), re.MULTILINE)
 # `Verdict:` as a plain line, a heading or bold — never inside another line,
 # so a decorated `Status: Done (Verdict: PASS)` is not read as one.
@@ -155,13 +159,42 @@ def _missing_brief_lines(prompt: str) -> list[str]:
     inside the field name does not."""
     text = unicodedata.normalize("NFKC", prompt)
     tiers = [v.replace("*", "").strip() for v in _TIER_LINE_PATTERN.findall(text)]
-    files = [v.replace("*", "").strip() for v in _FILES_LINE_PATTERN.findall(text)]
     missing = []
     if not any(t[:1] in ("0", "1", "2") and t for t in tiers):
         missing.append("Tier:")
-    if not any(f and not f.startswith("<") for f in files):
+    if not _files_filled(text.splitlines()):
         missing.append("Files:")
     return missing
+
+
+def _filled(value: str) -> bool:
+    value = value.replace("*", "").strip()
+    return bool(value) and not value.startswith("<")
+
+
+def _files_filled(lines: list[str]) -> bool:
+    """A `Files:` line with a filled value, or an empty one with a filled list
+    directly under it (JC-AM1): blank lines may precede the first item; the list
+    ends at a non-item, a blank line or a labelled item."""
+    for i, line in enumerate(lines):
+        match = _FILES_LINE_PATTERN.match(line)
+        if not match:
+            continue
+        if _filled(match.group(1)):
+            return True
+        if match.group(1).replace("*", "").strip():
+            continue  # an inline `<...>` is not empty, so no list is read
+        j = i + 1
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        while j < len(lines):
+            item = _LIST_ITEM_PATTERN.match(lines[j])
+            if not item or _LABEL_PATTERN.match(item.group(1) or ""):
+                break
+            if _filled(item.group(1) or ""):
+                return True
+            j += 1
+    return False
 
 
 def _review_problem(path: Path, spec: str | None) -> str | None:
@@ -304,7 +337,7 @@ def main() -> None:
             f"(AGENTS.md §6), add `{_OVERRIDE_TOKEN} <one-line reproduction>` so "
             f"the basis is on the record.\n"
             f"Only `ai-engineer` and `frontend-engineer` are gated on a spec — "
-            f"`ba-sa`, `pm`, `Explore`, `reviewer` and the rest are never blocked."
+            f"`ba-sa`, `pm`, `Explore`, `reviewer` and the rest are never blocked by this spec gate."
         )
 
     root = _repo_root()

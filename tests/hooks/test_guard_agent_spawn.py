@@ -803,8 +803,30 @@ def test_an_unfilled_tier_line_is_refused_naming_tier_only(prompt: str) -> None:
     assert f"{_BRIEF_MESSAGE} Tier:" in result.stderr and "Tier:, Files:" not in result.stderr
 
 
-@pytest.mark.parametrize("prompt", ["Tier: 1 — x", "Tier: 1 — x\nFiles:", "Tier: 1 — x\nFiles: <paths>"],
-                         ids=["no-files", "files-empty", "files-placeholder"])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Tier: 1 — x",
+        "Tier: 1 — x\nFiles:",
+        "Tier: 1 — x\nFiles: <paths>",
+        # JC-AM1: an empty `Files:` with no filled list directly under it.
+        "Tier: 1 — x\nFiles:\n",
+        "Tier: 1 — x\nFiles:\nSome paragraph.\n- a.md",
+        "Tier: 1 — x\nFiles:\n- <paths>",
+        "Tier: 1 — x\nFiles:\n- ",
+        "Tier: 1 — x\nFiles:\n-",
+        "Tier: 1 — x\nFiles:\n\n\n",
+        "Tier: 1 — x\nFiles:\n  a.md",
+        "Tier: 1 — x\nFiles:\n**Task**",
+        "Tier: 1 — x\nFiles: <paths>\n- a.md",
+        "- Tier: 2 — x\n- Files:\n- Verify with: pytest",
+        "Tier: 1 — x\nFiles:\n- Verify with: x\n- a.md",
+    ],
+    ids=["no-files", "files-empty", "files-placeholder", "files-last-line-newline", "paragraph-before-list",
+         "list-placeholder-only", "list-empty-item", "list-bare-dash", "blank-lines-only", "indented-path-no-marker",
+         "bold-heading-not-an-item", "inline-placeholder-then-list", "bulleted-header-files-forgotten",
+         "label-item-ends-the-list"],
+)
 def test_an_unfilled_files_line_is_refused_naming_files_only(prompt: str) -> None:
     result = _run_brief("reviewer", prompt)
     assert result.returncode == _EXIT_BLOCK, result.stderr
@@ -813,8 +835,24 @@ def test_an_unfilled_files_line_is_refused_naming_files_only(prompt: str) -> Non
 
 @pytest.mark.parametrize(
     "prompt",
-    ["Tier：1 — x\nFiles: a.py", "**Tier:** 2 — x\n- Files: a.py", "  1. Tier: 0 — x\n* **Files:** a.py, b.py"],
-    ids=["full-width-colon", "bold-and-bulleted", "numbered-and-bold"],
+    [
+        "Tier：1 — x\nFiles: a.py",
+        "**Tier:** 2 — x\n- Files: a.py",
+        "  1. Tier: 0 — x\n* **Files:** a.py, b.py",
+        # JC-AM1: an empty `Files:` with a filled list directly under it.
+        "Tier: 2 — x\nFiles:\n- a.md\n- b.md",
+        "Tier: 2 — x\nFiles:\n* a.md",
+        "Tier: 2 — x\nFiles:\n1. a.md",
+        "Tier: 2 — x\n**Files:**\n- a.md",
+        "Tier: 2 — x\n- Files:\n  - a.md",
+        "Tier: 2 — x\nFiles:\n\n- a.md",
+        "Tier: 2 — x\r\nFiles:\r\n- a.md\r\n",
+        "Tier: 2 — x\nFiles:\n- <paths>\n- a.md",
+        "Tier: 2 — x\nFiles:\n- doc/a.md — new: x",
+    ],
+    ids=["full-width-colon", "bold-and-bulleted", "numbered-and-bold", "list-dash", "list-star", "list-numbered",
+         "bold-files-list", "bulleted-files-indented-list", "blank-line-then-list", "list-crlf",
+         "placeholder-then-filled-item", "path-item-with-colon"],
 )
 def test_a_filled_brief_header_in_any_field_form_is_accepted(prompt: str) -> None:
     result = _run_brief("pm", prompt)
