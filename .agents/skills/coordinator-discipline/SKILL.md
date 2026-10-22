@@ -156,3 +156,48 @@ doing it. The turn saving is unproven; the trial measures it (M14).
 **This sizes a dispatch; it never lowers the rigour inside one.** Proof-of-red, the separate structure
 and visual-token verdicts, and "state every divergence" apply to a 15-minute slice exactly as to a
 two-hour one. Apply it at the **next** dispatch — never to narrow a wave already running.
+
+## 8. Brief headers the spawn guard checks
+
+Copy the block for the role, then add the task text below it. Each line here is one the guard
+or AGENTS.md §5 requires; a missing one costs a refused spawn and a rewrite (2026-10-22: a QA brief
+was refused for `NO_SPEC_BUGFIX` written without its colon).
+
+```
+# engineer, Tier 0
+Tier: 0 — <why it is a bug>
+Files:
+- <path>
+Verify with: <test selector>; scripts/verify-full.sh > <log> (judge by exit code and banner)
+NO_SPEC_BUGFIX: <the repro command and its red line>
+
+# engineer, Tier 1 (spec Approved)
+Tier: 1 — <spec and ACs>
+Spec: doc/specs/SPEC-<slug>.md
+Files:
+- <path>
+Verify with: <test selector>; scripts/verify-full.sh > <log>
+
+# reviewer (spawn with an isolated worktree, so its run ID is the worktree name)
+Tier: <0|1|2> — review
+Files:
+- doc/qa/REVIEW-<slug>.md          # or REVIEW-bugfix-<id>.md
+Spec: doc/specs/SPEC-<slug>.md     # omit for Tier 0
+Verify with: <test selector, run in the author's worktree>
+
+# qa
+Tier: <0|1|2> — QA
+Files:
+- doc/qa/QA-<slug>.md
+Spec: doc/specs/SPEC-<slug>.md     # Tier 1–2; for Tier 0 use NO_SPEC_BUGFIX: <repro> instead
+Review: doc/qa/REVIEW-<slug>.md
+Verify with: python3 -m pytest tests -q -p no:cacheprovider; scripts/verify-full.sh > <log>
+```
+
+Every reviewer and QA brief also states the threat model of scope-discipline rule 5, and on Tier 0
+the one-rework-round rule of rule 4. **Run IDs:** spawn reviewers and QA with an isolated worktree
+so `Reviewer-run:` is the worktree's `agent-<id>`. If it still comes back as `<id>`, fill it from
+the spawn result. Never accept an ID guessed from another agent's worktree; on 2026-10-22 three
+reviews did that, and one wrong guess could equal `Author-run:` and open the gate.
+**Docs that quote a placeholder** (an upper-case word in angle brackets) turn CI gate 3 red; write
+it escaped as `&lt;…&gt;`.
