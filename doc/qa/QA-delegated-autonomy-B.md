@@ -10,9 +10,11 @@ Provenance: the brief cites the owner's lean-gates ruling (`doc/memory/lean-gate
 
 Rework causes use the SPEC-verify-tiers H-AC4 list (`missed-ac`, `regression`, `spec-defect`, `test-gap`, `env-flaky`). `doc/templates/qa-report.md` does not carry that list yet.
 
-## Verdict: FAIL
+## Verdict: PASS
 
-Four criteria fail (B-AC2, B-AC4, B-AC6, B-AC7). The worst finding: one ordinary command, `mv scripts/autonomy.json <elsewhere>` or `git rm scripts/autonomy.json`, is allowed under an active mandate. It flips `status` to `inactive`, which switches off every AH guard and the commit-time check. Separately, `nice scripts/approve.sh <slug> --by agent` passed the owner rule and wrote a real approval.
+Current verdict, from **Re-test 2 (am1)** below: run at HEAD `dca8783` on `feat/top3-tiers-mechanisms-deny`, which contains the B merge `8cccea4`, and judged against `doc/specs/SPEC-delegated-autonomy-am1-guards-catch-accidents.md`. The round-1 and re-test 1 sections are kept unchanged as the record of what failed at `9670f32` and `7309362`.
+
+Round 1 (at `9670f32`) was FAIL. Four criteria failed (B-AC2, B-AC4, B-AC6, B-AC7). The worst finding: one ordinary command, `mv scripts/autonomy.json <elsewhere>` or `git rm scripts/autonomy.json`, is allowed under an active mandate. It flips `status` to `inactive`, which switches off every AH guard and the commit-time check. Separately, `nice scripts/approve.sh <slug> --by agent` passed the owner rule and wrote a real approval.
 
 ## Criteria Results
 
@@ -149,6 +151,8 @@ Commit under test: `7309362` (fix) on top of `03bc2ab` (QA pins), branch `worktr
 
 ### Verdict: FAIL
 
+Superseded by Re-test 2 (am1) below. This verdict was true at `7309362`.
+
 All 25 round-1 pins are green, and every round-1 bypass I re-ran is closed. B-AC2, B-AC4, B-AC6 and B-AC7 still fail on new routes. The worst finding: `scripts/` comes first on the core's import path, and its other files are not protected. One file the agent may write, `scripts/shlex.py` (`raise ImportError`), turns off every active-scope guard. After that, `git push origin main` exits 0, and a Write to `.claude/settings.json` exits 1, which does not block. A `scripts/argparse.py` shim lets a mandate edit through commit-msg with no trailer. Separately, `git -c alias.ok='!scripts/approve.sh' ok <slug> --by agent` passed the owner rule. I ran it end to end: it wrote a registry line and stamped the document `Approved`.
 
 ### Criteria Results (re-test 1)
@@ -253,6 +257,92 @@ All 339 pre-existing hook tests stay green, and so do the 129 other framework te
 - `git stash` (without `-u`) and `git rm -r --cached .`: stash is allowed (HEAD keeps the project file). `git rm -r --cached .` is blocked as a write to protected `.`, which is correct.
 - Not probed: Windows or case-sensitive volumes; the `-I`/`-P` interpreter behaviour of the hook runner.
 
+## Re-test 2 (am1)
+
+Under test: HEAD `dca8783` of `feat/top3-tiers-mechanisms-deny`. It contains the B squash `8cccea4` (`git merge-base --is-ancestor 8cccea4 HEAD` → true). Since `8cccea4`, `.claude/hooks/guard_bash.py` has changed for other work (`git diff --stat 8cccea4 HEAD` → 72 lines), so every probe below ran against HEAD's guards, not the merge commit's.
+
+Judged against `doc/specs/SPEC-delegated-autonomy-am1-guards-catch-accidents.md` (Approved, key `spec-delegated-autonomy-am1-guards-catch-accidents-2026-10-20`). am1 rewrites B-AC2, B-AC4, B-AC6 and B-AC7 and adds B-AC10. A spelling am1 lists under §Declared limits is recorded as declared, not failed. The independent review `doc/qa/REVIEW-delegated-autonomy-B.md` (PASS) was read for scope only. Every result below was re-run in this pass.
+
+Threat model, as the brief gives it: mistakes and shortcuts only. Another shell spelling of a guarded action is a declared limit and gets Parked, unless it makes a gate report green falsely. Deliberate fraud is Parked as a proposed LIMIT line.
+
+### Verdict: PASS
+
+Every round-1 and re-test 1 failure that am1 still covers is now closed. Every other failure is one of am1's declared limits, and the guard behaves as declared. B-AC10, the false-positive fix, holds in plain and active projects. The 17 retired pins were removed exactly as am1's table lists, and no kept QA pin was weakened.
+
+### Criteria Results (re-test 2)
+
+Probe: `scratchpad/probe.py`, outside the repo. It builds a plain project and a project with a live mandate, shaped like `_project()` in `tests/hooks/test_regression_autonomy_rework_bypasses.py`. It feeds each command to HEAD's `.claude/hooks/guard_bash.py` as a Bash payload, and each Write to `.claude/hooks/guard_autonomy_paths.py`, with `HOME` and `APPROVAL_LOG` pointing at a temporary registry.
+
+| # | Criterion (as amended by am1) | Verdict | Evidence (test / command) |
+|---|---|---|---|
+| B-AC1 | `items`; project file can only add | PASS | Unchanged by am1. `tests/framework/test_autonomy_items.py` is green in the 333-pass run below. |
+| B-AC2 | AH3/AH5 for the design table, the round-1 pins and the canonical command behind the 14 listed wrappers; `[]` for the five allow cases | PASS | Probe, active project: all 10 round-1 spellings → exit 2. These are `git --no-pager push origin main`, `git push --all origin`, `git push --mirror origin`, `curl -sd payload …`, `curl -dfoo …`, `rm -rf .`, `rm -rf *`, `mv scripts/autonomy.json /tmp/…`, `git rm scripts/autonomy.json` and `git mv scripts/autonomy.json moved.json`. Each names AH3 or AH5. `git push origin main`, `HEAD:main`, `-f`, and each of `env`, `exec`, `nohup`, `time`, `sudo`, `doas`, `command`, `builtin`, `nice`, `timeout 5`, `stdbuf -oL`, `xargs`, `source` and `.` before it → exit 2, `always-human item AH3 — matched: git push <remote> main`. The five allow cases → exit 0 in both projects. In the plain project every AH3/AH5 command → exit 0 (R6). `tests/hooks/test_regression_always_human_bypasses.py` is unchanged since my round-1 pins (`git diff 9976550 HEAD` on that file is empty) and is green. |
+| B-AC3 | Planted attempt per item exits 2 | PASS | Unchanged by am1. The `tests/hooks/test_guard_always_human.py` B-AC3 block is green in the 333-pass run. |
+| B-AC4 | `owner-only command` (exit 2) in every project for the 11 approved invocations, the round-1 spellings and an owner script in a non-reader argv; `--list` allowed; fails closed without the core | PASS | Probe, plain and active: all 11 approved invocations → exit 2, `owner-only command — matched: owner-only …`. All 8 round-1 prefixes (`nice`, `timeout 5`, `source`, `.`, `env -i`, `/usr/bin/env python3 …approve.py`, `bash -o errexit`, `… \| xargs`) → exit 2. `scripts/approve.sh --list` → exit 0. Fail-closed without the core: `test_regression_owner_rule_holds_when_the_core_cannot_be_imported` is green, and so is the registry-symlink pin. |
+| B-AC5 | Owner's `!scripts/approve.sh --list` not intercepted | PASS | The coordinator's live owner probe after `8cccea4`, recorded in the section below. Not re-run by QA, because no agent has the owner's `!` shell. |
+| B-AC6 | Write/Edit to a protected path refused under autonomy, allowed outside; shell writes through redirect, `tee`, `sed -i`, `cp`, `mv` and `rm` refused naming AH5; both guards hold with a `scripts/` stdlib shadow | PASS | Probe, active: `echo x >`, `>>`, `sed -i ''`, `cp`, `\| tee`, `mv`, `rm` and `rm -f` on a protected path → exit 2, `AH5 — matched: write to protected path …`. Plain → exit 0. The Write tool on `scripts/autonomy.json`, `.claude/settings.json`, `doc/mandates/M.md`, the round-1 case variants (`SCRIPTS/…`, `scripts/Autonomy.json`, `Doc/Mandates/…`, `.Claude/…`), and writes through pre-existing file and directory symlinks → exit 2 naming AH5. Plain → exit 0. Bash `echo '{}' > cfg.json` through the symlink → exit 2. Shadowing: `tests/hooks/test_autonomy_stdlib_shadowing.py`, which has a no-shadow control, and the two kept shadow pins are green. As a supplementary check, with the guards installed in the project and `scripts/shlex.py`, `argparse.py`, `dataclasses.py` or `datetime.py` raising ImportError, `git push origin main` → 2 (AH3) and the Write → 2 (AH5). |
+| B-AC7 | `.githooks/commit-msg` refuses a staged protected path without an owner trailer; the opt-in clears only `scripts/autonomy.json` and the trailer entry's `artifact`; an `argparse.py` shim does not switch it off | PASS | `grep -n "python3 -I" .githooks/commit-msg` → line 17, `python3 -I scripts/autonomy.py check-commit --message-file "$1"`. Green in the 333-pass run: `test_regression_deleting_the_project_file_needs_an_owner_trailer` (my round-1 pin) and `test_regression_a_shadow_module_cannot_switch_the_commit_check_off` (my re-test 1 pin). Also green: `test_the_opt_in_clears_the_project_file_and_its_own_mandate_document` and `test_the_opt_in_does_not_clear_another_protected_path_it_adds` for `doc/orders/ORDER-self.md`, `doc/mandates/MANDATE-wide.md`, `scripts/release.sh` and `.githooks/post-checkout`. The first pin's diff since `9976550` is only the fixture split am1 asked for (an install commit, then the opt-in). Its `returncode` assertion is unchanged. |
+| B-AC8 | Artifact classification fails closed | PASS | Unchanged by am1. `test_autonomy_items.py` B-AC8 block green. |
+| B-AC9 | ADAPTERS.md rows | PASS | Unchanged by am1. Green. Also green: `tests/framework/test_doc_contract_always_human_limits.py`, the am1 doc contract for the declared-limits paragraph. |
+| B-AC10 | Read-only uses that name an owner script are allowed in plain and active projects; hostile neighbours stay refused | PASS | Probe, both projects: all 9 allowed commands → exit 0. These are `find . -name approve.sh`, `ruff check scripts/approve.py`, `scripts/approve.sh --help`, `-h`, `spec-x --by a --help`, `nl`, `sort`, `bash -n` and `python3 -m py_compile`. The hostile neighbours (`find … -exec`, `-execdir`, `-ok`, `sh scripts/approve.sh x`, and `py_compile … && python3 scripts/approve.py x`) → exit 2 `owner-only command`. The three kept re-test 1 pins `test_regression_reading_an_owner_script_stays_allowed[…]` are green. |
+
+Counts: 10 PASS, 0 FAIL, 0 PENDING.
+
+### What am1 reclassified
+
+The old failures, and what happened to each:
+
+| Old failure (round) | Now | Measured at HEAD |
+|---|---|---|
+| All round-1 spellings for B-AC2, B-AC4, B-AC6 and B-AC7: push spellings, `curl -d`, `rm -rf .`/`*`, `mv`/`git mv`/`git rm` of the project file, the 8 owner-script prefixes, the registry symlink, the missing core, case variants, write symlinks, and `git rm` at commit | **Closed** (am1 keeps them) | Exit 2 in the probe. The round-1 pins are green. |
+| Re-test 1: off switch by shadowing a stdlib module (Critical), in both guards and commit-msg | **Closed** (am1 keeps it: self-inflicted) | Shadow tests green, and the supplementary probe gives exit 2. |
+| Re-test 1: owner-script false positives (Low, regression) | **Fixed** as new B-AC10 | Exit 0, with the hostile neighbours at exit 2 |
+| Re-test 1: `arch`, `caffeinate`, `script` before a push | **Declared** D-L7 | Exit 0 under a mandate |
+| Re-test 1: `git -c alias.p=push p origin main`, and `git -c alias.ok='!scripts/approve.sh' …` | **Declared** D-L1 | Exit 0 in both projects |
+| Re-test 1: `git push --repo=origin main` | **Declared** D-L8 | Exit 0 |
+| Re-test 1: `git bisect run scripts/approve.sh …`, and `awk 'BEGIN{system(ARGV[1])}' scripts/approve.sh` | **Declared** D-L2, D-L3 | Exit 0 |
+| Re-test 1: a registry write through a symlink made in the same command (file and directory form) | **Declared** D-L6 | Exit 0 |
+| Re-test 1: `cd $HOME/.jarvis/approvals && echo x >> registry.jsonl` | **Declared** D-L9 | Exit 0 |
+| Re-test 1: rewinding past the opt-in (`git checkout pre-opt-in`), `git reset --hard`, and `git stash -u` | **Declared** D-L4 | `git checkout pre-opt-in` and `git stash -u` → exit 0 at guard level |
+| Re-test 1: `git checkout &lt;ref&gt; -- &lt;protected&gt;` and `git restore --source=&lt;ref&gt; …` | **Declared** D-L5 | In the active project, all three re-test 1 commands now exit 2, refused by guard_bash's rule **A1'** (`git checkout -- <path> discards uncommitted changes …`), not by AH5. That is not AH5 coverage, and the limit stays as declared. In the plain project they exit 0. |
+| Re-test 1, Low (ruling): writers outside the design list (`perl -pi`, `truncate`, `unlink`, `rsync`, `find -delete`, `chmod`) | **Declared** D-L10 (AM1-ADR-2: the §B.2 list is exhaustive) | Exit 0 under a mandate |
+| Re-test 1, Medium (ruling): the opt-in carve-out admits any new protected file | **Answered** by AM1-ADR-3, and now enforced | The four refusal cases and the clearing case are green |
+| Re-test 1, Medium (ruling): a project claiming another project's mandate | **Answered** by AM1-ADR-4: deferred to increment C as a named precondition. No change in B. | Not re-probed (no B behaviour changed) |
+| Round 1, High (owner ruling) S1: a trailer the agent can supply itself | **Narrowed** by am1's B-AC7 wording ("the owner's approval of a changed protected path or of the governing mandate document"). A mandate key still clears a protected-path commit. am1 states this. | Not re-probed. No pin exists, and am1 did not ask for one. |
+
+Retired pins: `git diff 9976550 HEAD -- tests/hooks/test_regression_autonomy_rework_bypasses.py` removes exactly the 17 parametrize entries and functions in am1's table (D-L1, D-L2, D-L3, D-L4, D-L5, D-L6, D-L7, D-L8, D-L9). Each is replaced by a one-line `# Retired by SPEC-…-am1…` comment. The two shadow pins and the three B-AC10 pins have no changed lines, and `--collect-only` collects exactly those 5. The module docstring now points at am1. The pins were deleted, not converted to assert exit 0, as am1 requires.
+
+### Test Run (re-test 2)
+
+- `python3 -m pytest tests/hooks -q -p no:cacheprovider` (unfiltered) → `1303 passed in 253.63s`, rc=0.
+- The B and am1 files am1 names, plus the rework file, the doc contract and `test_neutrality.py`: `test_regression_always_human_bypasses.py`, `test_autonomy_stdlib_shadowing.py`, `test_regression_commit_msg_autonomy.py`, `test_guard_always_human.py`, `test_guard_autonomy_paths.py`, `test_autonomy_items.py`, `test_pre_commit.py`, `test_commit_msg_owner_trailer.py`, `test_regression_autonomy_rework_bypasses.py`, `test_doc_contract_always_human_limits.py` and `test_neutrality.py` → `287 passed in 55.35s`. `tests/hooks/test_guard_always_human_rework.py` → `46 passed in 8.38s`. That is 333 in all, which matches the review's count.
+- Exit gate, `scripts/verify-full.sh` (`verify-handoff.sh --status` → `not opted in`), run after this section was written, rc=0:
+  - `OK hooks`: `1303 passed`
+  - `OK ci-examples`: `30 passed`
+  - `OK scar-forge`
+  - `OK coordinator`: `155 passed`
+  - `OK framework`
+
+  It also printed `EXIT GATE INCOMPLETE — 3 step(s) not configured: lint format tests`, which is the template's stated limit. The run record is `.verify/runs/20261022T081545Z-3442/record.json`. Only one line of this file changed after that run: this one, which records the result.
+
+QA added no tests in this pass. Every criterion is covered by existing pins and am1's new tests.
+
+### Defects (re-test 2)
+
+None.
+
+### Parked (re-test 2)
+
+These are outside the threat model, as deliberate spellings. They are not FAIL, and they are proposed for the owner as LIMIT lines. Both were measured at exit 0 **at guard level only**. QA did not run an owner script to carry either one end to end.
+
+- **Proposed LIMIT line:** a read-only flag after `--`. `scripts/approve.sh --by a -- spec-x -h` and `… -- spec-x --help` → exit 0 in both projects. The reviewer traced the code: `approve.py` reads the words after `--` as slugs, so `-h` matches as a filename substring, and a write follows only if every matching document is approvable. Two things follow:
+  - am1's claim that `--help` is safe anywhere in the argv does not hold past `--`. am1's own `-h`/`--help` addition widened a route that `-n` had opened before.
+  - A forged line written this way is in the AM1-ADR-1 class. A local `verify_approvals.py` run accepts it, and CI's registry secret is the backstop.
+
+  The reviewer's options stand: (a) declare a new D-L line, or (b) stop the `READ_ONLY_FLAGS` search at `--`. This is the owner's decision.
+- **Proposed LIMIT line:** an owner-script name in a different case. `SCRIPTS/APPROVE.SH x --by a` → exit 0 in both projects. On a case-insensitive volume this runs the owner script. The path guard case-folds, but the owner-script basename check does not. It is in the same AM1-ADR-1 class.
+- **Observation:** at HEAD, rule A1' refuses the D-L5 restore commands in the active fixture. A1' predates B and is not part of B. Do not count it as AH5 coverage.
+
 ## Approval history
 
 <!-- scripts/approve.sh writes the approval entry here. Leave this heading in
@@ -263,6 +353,7 @@ All 339 pre-existing hook tests stay green, and so do the 129 other framework te
 
 - **2026-10-20 — drafted.** qa, against SPEC-delegated-autonomy (Approved, key spec-delegated-autonomy-2026-10-20) at commit 9670f32. Adds 25 red-first regression tests (24 in hooks, 1 in framework) in `tests/hooks/test_regression_always_human_bypasses.py` and `tests/framework/test_regression_commit_msg_autonomy.py`.
 - **2026-10-20 — re-test 1.** qa, against 7309362. FAIL on B-AC2, B-AC4, B-AC6 and B-AC7; B-AC5 still pending the owner's live probe. Adds 22 red-first regression tests in `tests/hooks/test_regression_autonomy_rework_bypasses.py` and 1 in `tests/framework/test_regression_commit_msg_autonomy.py`.
+- **2026-10-22 — re-test 2 (am1).** qa, against HEAD dca8783 (contains the B merge 8cccea4), under SPEC-delegated-autonomy-am1-guards-catch-accidents (Approved). PASS on all 10 criteria. Records which re-test 1 failures am1 declared as limits D-L1 to D-L10. Adds no tests.
 
 ## B-AC5 live owner probe (coordinator, 2026-10-20)
 
