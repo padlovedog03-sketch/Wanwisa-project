@@ -1,6 +1,7 @@
 # SPEC: Amendment 3 — pre-commit refuses a commit whose staged tree's newest gate record is RED, or which holds a placeholder CI gate 3 would fail on
 
-Status: In Review
+Status: Approved
+Approval: spec-verify-tiers-merge-gate-am3-commit-on-red-2026-10-22
 Owner: ba-sa
 Upstream: doc/requirements/PRD-verify-tiers-merge-gate.md (Approved, registry key `prd-verify-tiers-merge-gate-2026-10-20`; R5, R10, R12) · doc/memory/gate-exit-code-before-commit.md (incident 1: e6b4daa committed while verify-full printed RED; incident 2: 7661338 committed docs with no gate run, CI gate 3 went red) · un-parked by Jarvis under doc/memory/jarvis-decides-self-improvement.md (backlog improvement checklist C2) · constraints doc/memory/ease-of-use-over-strictness.md, doc/memory/hostile-inputs-in-every-ac.md, doc/memory/smallest-useful-scope-first.md
 Date: 2026-10-22
@@ -410,6 +411,7 @@ criterion's test file is named above the AC table.
 
 ## Approval history
 
+- **2026-10-22 — approved (human).** Registry key `spec-verify-tiers-merge-gate-am3-commit-on-red-2026-10-22`, carried on the canonical `Approval:` line above.
 - **2026-10-22 — drafted.** ba-sa, at Jarvis's request (un-parking checklist C2). The draft is based
   on the measurements above, taken at `96bebdb`.
 - **2026-10-22 — REWORK 1 (Jarvis).** D3 and D4 kept. The parked idea "run CI gate 3's placeholder

@@ -1,6 +1,7 @@
 # SPEC: Amendment 2 — a wider label grammar after an empty `Files:` (C1), and rule 6 reads list-form `Files:` (C3)
 
-Status: In Review
+Status: Approved
+Approval: spec-jarvis-coordinator-am2-brief-labels-2026-10-22
 Owner: ba-sa
 Upstream: doc/specs/SPEC-jarvis-coordinator-am1-files-list.md (Approved, registry key `spec-jarvis-coordinator-am1-files-list-2026-10-21`; this file amends its AM1-ADR-2) · doc/requirements/PRD-jarvis-coordinator.md (Approved, R4, R6) · doc/qa/QA-jarvis-coordinator.md (the finding behind C1) · doc/tasks/backlog.md Active row 7 and improvement checklist C1, C3 · owner rulings 2026-10-22: doc/memory/jarvis-decides-self-improvement.md, doc/memory/easy-and-end-to-end.md
 Date: 2026-10-22
@@ -180,6 +181,7 @@ That is 2 requirements and 1 amended decision, mapping to 5 criteria.
 
 ## Approval history
 
+- **2026-10-22 — approved (human).** Registry key `spec-jarvis-coordinator-am2-brief-labels-2026-10-22`, carried on the canonical `Approval:` line above.
 <!-- scripts/approve.sh writes the approval entry here. Leave this heading in
      place: approve.py REFUSES any document that lacks it. -->
 

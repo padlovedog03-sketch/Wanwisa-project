@@ -1,6 +1,7 @@
 # SPEC: Jarvis coordinator, Increment 2: the scorecard (R9–R10)
 
-Status: In Review
+Status: Approved
+Approval: spec-jarvis-coordinator-inc2-scorecard-2026-10-22
 Owner: ba-sa
 Upstream: doc/requirements/PRD-jarvis-coordinator.md (Approved, `prd-jarvis-coordinator-2026-10-20`, R9, R10, M1–M7) · doc/specs/SPEC-delegated-autonomy.md H-AC1 (Approved; its owner-message rule is pulled forward here) · doc/specs/SPEC-verify-tiers-merge-gate.md Part J (the meter `scripts/agent_time.py` and its reader contract) · doc/tasks/backlog.md Active row 9 and checklist A4 · owner rulings 2026-10-22: doc/memory/jarvis-decides-self-improvement.md, doc/memory/easy-and-end-to-end.md
 Date: 2026-10-22
@@ -281,6 +282,7 @@ That is 2 requirements and 7 metrics, mapping to 12 criteria.
 
 ## Approval history
 
+- **2026-10-22 — approved (human).** Registry key `spec-jarvis-coordinator-inc2-scorecard-2026-10-22`, carried on the canonical `Approval:` line above.
 <!-- scripts/approve.sh writes the approval entry here. Leave this heading in
      place: approve.py REFUSES any document that lacks it. -->
 

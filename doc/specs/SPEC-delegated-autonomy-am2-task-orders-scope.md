@@ -1,6 +1,7 @@
 # SPEC: Amendment 2 — task orders as they will actually be built (row 5: F, A subset, C subset, J)
 
-Status: In Review
+Status: Approved
+Approval: spec-delegated-autonomy-am2-task-orders-scope-2026-10-22
 Owner: ba-sa
 Upstream: doc/specs/SPEC-delegated-autonomy.md (approved, registry key `spec-delegated-autonomy-2026-10-20`) and its doc/architecture/DESIGN-delegated-autonomy.md · doc/specs/SPEC-delegated-autonomy-am1-guards-catch-accidents.md (approved, `spec-delegated-autonomy-am1-guards-catch-accidents-2026-10-20`) · owner rulings doc/memory/jarvis-decides-self-improvement.md (2026-10-22), doc/memory/ease-of-use-over-strictness.md (point 3), doc/memory/smallest-useful-scope-first.md · doc/tasks/backlog.md "Row 5: what task orders need"
 Date: 2026-10-22
@@ -180,6 +181,7 @@ This amendment has 8 criteria, AM2-AC1 to AM2-AC8 `[MEASURED: grep -c '^| AM2-AC
 
 ## Approval history
 
+- **2026-10-22 — approved (human).** Registry key `spec-delegated-autonomy-am2-task-orders-scope-2026-10-22`, carried on the canonical `Approval:` line above.
 <!-- scripts/approve.sh writes the approval entry here. Leave this heading in
      place: approve.py REFUSES any document that lacks it, because an approval
      with no record of what wording it replaced is an approval nobody can audit
