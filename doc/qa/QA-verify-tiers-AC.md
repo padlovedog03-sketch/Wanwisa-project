@@ -2,10 +2,12 @@
 
 Status: In Review
 Owner: qa
-Upstream: doc/specs/SPEC-verify-tiers-merge-gate.md (AC-AC1 to AC-AC19, increment A+C); doc/architecture/DESIGN-verify-tiers-merge-gate.md §AC; branch worktree-agent-ad1e27705199bd4e4 at commits 46c5930 and cb76109
-Date: 2026-10-20
+Upstream: doc/specs/SPEC-verify-tiers-merge-gate.md (AC-AC1 to AC-AC19, increment A+C); doc/specs/SPEC-verify-tiers-merge-gate-am2-scanner-scope.md (am2: AC-AC8 replaced, AC-AC20 to AC-AC24 new); doc/architecture/DESIGN-verify-tiers-merge-gate.md §AC; branch worktree-agent-ad1e27705199bd4e4 at commits 46c5930 and cb76109; re-test 2 on worktree agent-a0bb7774512557e28 at 0fd71b6 plus the uncommitted AC-AC20 fix
+Date: 2026-10-22
 
-## Verdict: FAIL
+## Verdict: PASS
+
+**Re-test 2 (am2, 2026-10-22): PASS.** 24 PASS, 0 FAIL (AC-AC8 counted once, with its four clauses 8a to 8d each passing). AC-AC8 and AC-AC15 pass on the re-test 1 repros. AC-AC20 passes in the full, fast and handoff tiers, and was shown red against `HEAD` first. See `## Re-test 2 (am2)` below. The earlier text is kept as it was.
 
 **Re-test 1 (after `1785567`): still FAIL.** 17 PASS, 2 FAIL (AC-AC8, AC-AC15). See `## Re-test 1` below. The round-1 text that follows is kept as it was.
 
@@ -402,7 +404,152 @@ Ordered by severity. Each row carries exactly one rework cause. Round-1 D1 to D1
 | Accepted deviation 2: `--ignore`/`--ignore-glob` declarable | Measured working at configure time, and refused at runtime. |
 | The stated silent gap | Real, and it reaches further than stated: it also covers `bazel test` (where the cache ban lives) and `cargo test` (the `cargo-test` typo). Filed as D16, plus D14 for the part that is a regression. |
 
+## Re-test 2 (am2)
+
+Tree under test: worktree `agent-a0bb7774512557e28` at `0fd71b6`, which carries `d259245` (A+C merged under am2), plus the engineer's uncommitted AC-AC20 fix. That fix touches `scripts/verify-full.sh`, `scripts/verify-fast.sh`, `scripts/verify-handoff.sh` and `tests/hooks/test_verify_tiers.py` (+75 lines). The criteria are AC-AC1 to AC-AC19 as reworded by `doc/specs/SPEC-verify-tiers-merge-gate-am2-scanner-scope.md` (Approved), plus its new AC-AC20 to AC-AC24. The independent review `doc/qa/REVIEW-verify-tiers-AC.md` is round 3, PASS (`afb16f9`).
+
+All commands ran on 2026-10-22 with `GNU bash, version 3.2.57(1)-release (arm64-apple-darwin24)`. Scratch copies were kept outside the repo.
+
+**Provenance.** The brief says this is tier 1 under the approved am2. It does not say a human approved this implementation. Tier 1 lets QA run first, so this is flagged and does not block.
+
+### Verdict: PASS
+
+All 24 criteria pass. AC-AC8 counts once here; its four am2 clauses (8a to 8d) each pass. AC-AC8 and AC-AC15 pass with the original re-test 1 repros. AC-AC20 passes in all three tiers, and it is shown red against `HEAD` first. `pytest tests` gives `1884 passed, 1 skipped`, and the exit gate gives `EXIT GATE INCOMPLETE — 3 step(s) not configured: lint format tests` with exit 0 (hooks `1308 passed`; this repo's lint/format/tests are placeholders, so INCOMPLETE is the right result, not GREEN).
+
+Count: 24 PASS, 0 FAIL.
+
+### What am2 reworded
+
+| Item | am2 change | Effect on this re-test |
+|---|---|---|
+| AC-AC8 | Replaced by AC-AC8a (bans match pytest-family argv only), AC-AC8b (other programs are not scanned for built-in bans), AC-AC8c (one `limit:` line per unscanned step, kept in `record.warnings`) and AC-AC8d (`VERIFY_EXTRA_BANNED` applies to every program) | Re-test 1's D13 is now an AC-AC8a case. D15 is an AC-AC8b case. D16 became AC-AC8c. D14 and D17 are declared limits, not defects. |
+| AC-AC19 | Amended: the hard-ban list grows (`--ff`, `--sw` and their families), and `--ignore`/`--ignore-glob` can be declared | Accepted deviation 2 is now the wording |
+| AC-AC5 | One clause added: duplicate test labels give RED, exit 1 | Accepted deviation 1 is now the wording |
+| AC-AC6 | Two exact clauses: `ran N of ?`, and `collect failed (exit n)` | Round-1 D9 is now the wording |
+| AC-AC15 | Not reworded. AC-AC8b now names `go test -timeout 5m ./...` explicitly as a command that must not be refused. | D12 is checked under both |
+| AC-AC20 to AC-AC24 | New: the conf syntax check (AC-AC20), the hashed `runner.id` (AC-AC21, AM2-R4), separate pruning for fast and full runs (AC-AC22, AM2-R5), the content-hashed tree (AC-AC23), and the retry-plugin bans `--force-flaky`/`--max-runs` (AC-AC24) | Each gets its own verdict below |
+| Design §AC.3 and ADR-14 `ALLOWLISTABLE` | Superseded by am2's ban table | Probes below use the am2 table |
+| QA pin `test_regression_a_design_listed_ban_is_refused_in_the_tool_it_belongs_to` | Retired by am2's "QA regression pins" table, because D14 is now declared limit L1 | Deleted on the branch. A comment at its old place names am2. The 16 remaining pin cases (13 functions, three of them parametrised) are collected and pass. |
+
+### Re-test 1 defects, now
+
+| ID | Status | Evidence |
+|---|---|---|
+| D12 | Closed | `go test -timeout 5m ./...`, `-mod=vendor`, `-memprofile m.out`, `-fuzztime 10s`, `-asmflags=-S` and `-exec sudo` all give rc=0 with no `BANNED:` line. In a listed test step they also print `limit: step tests runs no known runner; …`, as AC-AC8c requires. Pins `test_regression_a_go_project_with_no_conf_…` and `test_regression_go_single_dash_long_flags_…[*]` pass. |
+| D13 | Closed | `python3 -mpytest -x` / `--lf` / `--reruns 2` each give rc=2 with `BANNED: -x — hides the other failures`, `BANNED: --lf — selects nothing after a green run` and `BANNED: --reruns — retries turn a failure into a pass`. Pin `test_regression_an_attached_interpreter_m_…[*]` passes. |
+| D14 | Retired (declared limit L1) | `bazel test //... --cache_test_results=yes` and `cargo nextest run --retries 2` give rc=0 and, in a listed test step, the `limit:` line. That is what am2 asks for. A project can refuse them through `VERIFY_EXTRA_BANNED` (AC-AC8d, probed below). |
+| D15 | Closed | `make -C tools/jest -k`, `make -C tools/pytest -k` and `echo pytest -x` give rc=0, with no `BANNED:` line. Pin passes. |
+| D16 | Closed (now AC-AC8c) | `npm test -- --bail` and `tox -- -x` in a listed test step print the `no known runner` limit line. Pin `test_regression_a_test_step_with_no_recognised_runner_…` passes. |
+| D17 | Resolved by am2 scope | Built-in bans are pytest-only (AC-AC8a and AC-AC8b), so `go test -x` is no longer refused. Other runners' stop/last-failed flags are limit L6, or are declared by the project. |
+| D18 | Closed | A conf whose last line is false loads in all three tiers (AC-AC20 below). Pin `test_regression_a_conf_whose_last_test_is_false_still_loads` passes. |
+
+### Criteria results (re-test 2)
+
+| # | Verdict | Evidence |
+|---|---|---|
+| AC-AC1 to AC-AC4 | PASS | `test_ac1_*` to `test_ac4_*` are in the 1884-pass run. The exit gate prints timed rows and a `record:` line. |
+| AC-AC5 (+ am2 clause) | PASS | `test_d3_two_test_steps_with_one_label_…`, plus pins `test_regression_a_conf_that_stops_parsing_…` and `test_regression_two_steps_sharing_a_test_label_…` (pass) |
+| AC-AC6 (+ am2 clauses) | PASS | `test_ac6_*`, `test_d9_*`, `test_a_collect_command_that_fails_is_red` (pass) |
+| AC-AC7 | PASS | `test_ac7_*` |
+| AC-AC8a | PASS | `check-banned --test-steps=tests "--step=tests\|<cmd>"`, probe output: `pytest tests/python_api -m "not slow"` → `BANNED: -m "not slow" — undeclared filter; …`. `.venv/bin/pytest -qxv` → `BANNED: -qxv`. `pytest -vk smoke` → `BANNED: -vk smoke`. `pytest -m"not slow"` → `BANNED: -m"not slow"`. `env A=1 uv run pytest --sw` → `BANNED: --sw`. `time -p pytest --ff` → `BANNED: --ff`. `if pytest --lf; then :; fi` → `BANNED: --lf`. `PYTEST_ADDOPTS=-x pytest` → `BANNED: -x — … (in PYTEST_ADDOPTS)`. Each of these is rc=2. `pytest -rxXs -p no:x` and `pytest --cache-clear` → rc=0 (correct). Plus D13 above, and the am2-listed tests in the suite run. |
+| AC-AC8b | PASS | rc=0 with no `BANNED:` line for `git commit -m x`, `tar -x`, `sort -k 2`, `go test -timeout 5m ./...`, `make -C tools/pytest -k`, `echo pytest -x`, `python3 -m pytest` and `coverage run -m pytest`. With no `--test-steps` (no conf), `go test -timeout 5m ./...`, `go test -exec sudo ./...` and `cargo test -- --retries 2` → rc=0 and silent. |
+| AC-AC8c | PASS | `--runner=jest`, step `tests\|jest --ci` → `limit: step tests runs jest; its flags are not scanned — declare bans in VERIFY_EXTRA_BANNED`, rc=0. Steps `tests\|pytest -q`, `e2e\|npm run e2e` and `lint\|ruff check .`, with `tests e2e` listed → exactly one line, for `e2e`, with `no known runner`. Nothing for the scanned `tests` step or the unlisted `lint` step. The `rt1_*` record and verdict tests pass. |
+| AC-AC8d | PASS | `--extra=-failfast`: `go test -failfast ./...` in a test step → `BANNED: -failfast — project-declared`, rc=2, after the limit line. The `=` form `-failfast=true` → `BANNED: -failfast=true — project-declared`. In a non-test step (`make lint -failfast`) and at runtime (`--runtime=-failfast`) it is refused too. |
+| AC-AC9 to AC-AC12 | PASS | `test_ac9_*` to `test_ac12_*` |
+| AC-AC13 | PASS | ci-examples and the pre-existing hooks tests pass in the gate run. The one QA pin deleted is the one am2 retires (see above). |
+| AC-AC14 | PASS | `test_ac14_*`. The gate run prints `counts: not configured — executed == collected NOT checked`. |
+| AC-AC15 | PASS | Original repro: the D12 pin builds a project with no conf whose test step is `go test -timeout 5m ./...`. It passes: no `BANNED:` line and no exit 2. `test_ac15_*` and `test_d6_a_project_as_filled_in_today_with_realistic_commands_stays_green` pass. |
+| AC-AC16 to AC-AC18 | PASS | `test_ac16_*` to `test_ac18_*`. Probe: `--allow='-m slow\|nightly'` with step `pytest -m slow` → `declared filter: -m slow — nightly`, rc=0. `--allow='--deselect=t::a'` with no reason → `BANNED: allow-list entry without a reason: --deselect=t::a`, rc=2. |
+| AC-AC19 (amended) | PASS | `--allow='--co\|why'` → `BANNED: --co — only -m, -k, --deselect, --ignore and --ignore-glob can be declared`, rc=2. A declared `-m slow` passed at runtime → `BANNED: -m — marker deselection used to reach green`, rc=2. `test_ac19_*` and `test_d7_ignore_…` pass. |
+| AC-AC20 | PASS | See the AC-AC20 table below: all three tiers, red-first against `HEAD`. |
+| AC-AC21 | PASS | `test_d8_the_local_runner_id_never_carries_the_hostname` and `test_the_runner_id_comes_from_the_environment_when_set` are collected and pass |
+| AC-AC22 | PASS | `test_d11_fast_runs_never_evict_a_full_record` passes. The reverse direction was probed in re-test 1 (D11 row). |
+| AC-AC23 | PASS | `test_rt1_a_same_size_edit_with_an_unchanged_mtime_is_hashed_by_content` passes |
+| AC-AC24 | PASS | `test_ac24_*`: 17 cases, all pass. Probes: `pytest --force-flaky`, `pytest --max-runs 3`, `python3 -m pytest -q --force-flaky` and `PYTEST_ADDOPTS=--max-runs=2 pytest` → rc=2, `BANNED: … — retries turn a failure into a pass`. `--allow='--force-flaky\|flaky suite'` and `--allow='--max-runs\|x'` → `BANNED: <token> can never be allow-listed`. `--runtime=--force-flaky` → rc=2. `pytest --flake-runs 3` → rc=0 (L7). **Red-first:** `git show e436d1f:scripts/verify_record.py` run with `check-banned "--step=tests\|pytest --force-flaky"` and `…--max-runs 3` → both rc=0. |
+
+### AC-AC20 in all three tiers
+
+Each conf was copied as `scripts/verify.conf` into a fresh scratch git repo holding the worktree's `scripts/`. Each tier was then run: `verify-full.sh`, `verify-fast.sh x.py`, `verify-handoff.sh --status` and `verify-handoff.sh`.
+
+| Conf | `bash -n` | full | fast | handoff `--status` / run |
+|---|---|---|---|---|
+| `STEPS=(` open at EOF, settings after it (the review's repro) | rc 0, prints `unexpected EOF while looking for matching ')'` | rc 1, `EXIT GATE RED — scripts/verify.conf failed to load (syntax error); no step was run`, no step ran | rc 2, `FAST VERIFY REFUSED — scripts/verify.conf failed to load (syntax error)`, no step ran | `not opted in` + stderr `scripts/verify.conf failed to load (syntax error)` / rc 3, `HANDOFF TIER NOT CONFIGURED — scripts/verify.conf failed to load (syntax error); …` |
+| `X=(a b` as the last line, after valid `STEPS` | rc 0, prints | same as above | same | same |
+| Open `"`, open `'`, stray `fi`, open `if`, open `$(`, open `${` | rc 2 | same as above, for each | same | same |
+| UTF-8 BOM before `STEPS=` | rc 2 | refused, as above | refused | refused |
+| Last line `[ -n "${QA_NEVER_SET_FLAG:-}" ] && VERIFY_STEP_BUDGET_S=600` | rc 0, silent | rc 0, `EXIT GATE GREEN`, step ran, no `failed to load` | rc 0, `FAST VERIFY OK — partial run: …`, no `failed to load` | `not opted in`, empty stderr (this conf does not opt in) |
+| Last line `false` | rc 0, silent | GREEN, as above | OK, as above | as above |
+| Unbalanced `(` inside a comment and inside a quoted string | rc 0, silent | GREEN | OK | as above |
+| `scripts/verify.conf.example`; an empty conf | rc 0, silent | no `failed to load`; the steps ran (the RED that follows comes from the probe copy, which has no `tests/` for the default hooks step) | `FAST VERIFY INCOMPLETE …`, no `failed to load` | `not opted in`, empty stderr / rc 3, plain not-opted-in banner |
+
+**The handoff tier with an opt-in conf.** These were driven through `tests/hooks/test_verify_handoff.py`'s own `_repo`/`_run` helpers, from a scratch script. The conf is the full opt-in conf, then one of the following:
+- `VERIFY_ALLOWED_FILTERS=(` open at EOF;
+- `VERIFY_UNTRACKED_INPUTS=(` open at the *top*, with the opt-in settings after it;
+- `X="abc` open at EOF.
+
+Each gives `--status` → `not opted in` + `failed to load (syntax error)`, and the run gives rc 3 with the broken-conf banner; `_nothing_ran` is true. Controls behave as they should: the same conf with a false last line gives `opted in` and rc 0 (`HANDOFF TIER — ran 3 of 5 …`), and so does the bare opt-in conf.
+
+**Red-first against `HEAD` (`0fd71b6`, without the fix).** These are scripts from `git archive HEAD`, with the same probes:
+- **Full:** conf `STEPS=("tests|touch STEP-MARK; echo STEP-RAN")` / `X=(` / `VERIFY_TEST_STEPS="tests"` / `VERIFY_COLLECT_CMD="echo 5"`. The run prints `OK tests … STEP-RAN`, `counts: not configured — executed == collected NOT checked` and `EXIT GATE GREEN`, rc 0. The two settings after the open array were dropped silently. With the fix, it gives rc 1 with the syntax-error banner, and the marker file is not created.
+- **Fast:** conf `LINT=(touch STEP-MARK)` / `TEST=(touch STEP-MARK)` / `VERIFY_COLLECT_CMD="echo 5"` / `X=(`. The run gives rc 0, `FAST VERIFY OK — partial run: ran ? of 5 …`, and the steps ran. With the fix, it gives rc 2 `FAST VERIFY REFUSED …`, and the marker is not created.
+- **Handoff:** opt-in conf + `VERIFY_ALLOWED_FILTERS=(` open at EOF. `--status` gives `opted in` (stderr carries bash's EOF error), and the run gives rc 0, `HANDOFF TIER — ran 3 of 5`. With the fix: not opted in, rc 3.
+
+### Edge cases probed (re-test 2), not filed
+
+- `pytest -- -x` → refused (`BANNED: -x`). After `--`, `-x` is a path. That is over-refusal, but no one writes it, and it fails closed.
+- `pytest --lf-not-really` → refused by the `--lf*` prefix rule. That is the table's stated prefix match.
+- `pytest --co` in a test step → not refused. It collects and runs nothing, so AC-AC5's zero-cases rule covers it.
+- `pytest tests/-x` → not refused (correct: it is a path).
+
+### Test run (re-test 2)
+
+Both commands ran in worktree `agent-a0bb7774512557e28`, with output redirected to a log. `scripts/verify-handoff.sh --status` → `not opted in`, so the verdict command is `scripts/verify-full.sh`.
+
+```
+$ python3 -m pytest tests -q -p no:cacheprovider
+1884 passed, 1 skipped in 254.86s (0:04:14)
+pytest_exit=0
+```
+
+The skip is `tests/framework/test_doc_contracts.py:193: agent_time.REWORK_CAUSES is the source now — see the test above`. It is pre-existing, and outside this slice.
+
+```
+$ bash scripts/verify-full.sh
+EXIT GATE — full verify
+  TODO lint              not configured — this step verified NOTHING
+  TODO format            not configured — this step verified NOTHING
+  TODO tests             not configured — this step verified NOTHING
+  OK   hooks             (200s) 1308 passed in 199.97s (0:03:19)
+  OK   ci-examples       (5s) 30 passed in 3.56s
+  OK   scar-forge        (1s) LIMIT (stated limit): this reports staleness, it never gates on it — no measured incident yet backs a specific day threshold, and a threshold with no scar behind it has no right to exist. It DOES fail (exit 1) when it finds a Closed scar with no Station 6 date, or stations entered out of order — those are checkable claims about this file, not judgement calls about how long is too long.
+  OK   coordinator       (4s) 155 passed in 3.66s
+  OK   framework         (45s) memory: 0 problem(s) in /Users/<user>/Desktop/<repo>/.claude/worktrees/agent-a0bb7774512557e28/doc/memory
+counts: not configured — executed == collected NOT checked
+EXIT GATE INCOMPLETE — 3 step(s) not configured: lint format tests
+Everything configured passed, and that is ALL this run proves.
+Fill those steps in scripts/verify-full.sh before treating this output as a gate.
+record: .verify/runs/20261022T083820Z-88018/record.json
+full_exit=0
+```
+
+### Engineer's claims — judgement (re-test 2)
+
+| Claim | Judgement |
+|---|---|
+| Full, fast and handoff refuse when `bash -n` exits non-zero or prints anything | CONFIRMED in all three tiers (table above) |
+| A false last line and `verify.conf.example` still load | CONFIRMED |
+| The new tests are red without the fix | CONFIRMED independently through the red-first probes above (not with `-k`) |
+
+### Parked (outside the ACs; for the coordinator)
+
+- A conf that writes to stdout or stderr when loaded (for example `echo hello-from-conf`) puts that text into the output of `verify-handoff.sh --status`, so the output becomes `hello-from-conf` followed by `not opted in`. Callers that compare the whole stdout would misread it.
+- A conf with CRLF line endings passes `bash -n` (rc 0, silent). It then loads labels with a trailing `\r` and fails closed: RED with `eval: … syntax error near unexpected token ')'`, and no `failed to load` line names the real cause.
+- A conf saved with a UTF-8 BOM is refused as a syntax error. That fails closed, but the message does not mention the BOM, so it is a usability point.
+- An unterminated heredoc is not caught by `bash -n`. The reviewer parked this already; it is repeated here only for completeness.
+- LIMIT (threat model): deliberate tampering, such as hiding flags in `$FLAGS` or renaming pytest, stays within am2's declared limits L1 to L8. It was not chased.
+
 ## Approval history
 
 - **2026-10-20 — drafted.** qa wrote this from the approved spec and design, a read of `scripts/verify_record.py`, `verify-full.sh` and `verify-fast.sh`, direct probes in scratch git repos, and the full gate run above. Nothing was committed and the main tree was not modified; it was read only, for the merge check.
 - **2026-10-20 — re-test 1.** qa re-tested the rework at `f441d8d` against the coordinator's D6–D11 rulings. It added 11 `test_regression_*` pins (D12–D16, D18), ran direct scanner probes against `cb76109` and `1785567`, and ran the full gate above. It also redacted a truncated username fragment that round 1 left in the D5 traceback, and the repo directory name in the round-1 framework row. Nothing was committed and the main tree was not touched.
+- **2026-10-22 — re-test 2 (am2).** qa re-tested worktree `agent-a0bb7774512557e28` at `0fd71b6` (which carries `d259245`) plus the uncommitted AC-AC20 fix, against am2. It ran `python3 -m pytest tests` (1884 passed, 1 skipped) and `scripts/verify-full.sh` (INCOMPLETE, exit 0), ran scanner probes and three-tier conf probes in scratch copies, and ran red-first checks against `HEAD` and `e436d1f`. Verdict PASS, 24/24. No test was added (the brief's Files list names only this report), and no other file was edited.
