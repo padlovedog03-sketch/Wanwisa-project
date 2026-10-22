@@ -14,3 +14,9 @@ exit status is 0 and the banner is not RED. A filter after a pipe reports its ow
 **Why:** the same class as the earlier 3-red-tests commit; a lesson that lives only in memory recurs.
 
 **How to apply:** never write `verify-full.sh … | grep … && git commit`. Related: [[stay-on-the-definition]].
+
+**Repeat, 2026-10-22.** The coordinator committed 7661338 (docs only: two QA/review reports) without
+running `verify-full`. The reports quoted an upper-case placeholder in angle brackets, so CI gate 3
+went red on the branch (`9 failed, 21 passed` in tests/ci) until the literal was escaped. Second
+incident of "commit without a green gate", so checklist C2 (pre-commit refuses on a RED or missing
+record) meets its un-park condition; that is an owner decision.
