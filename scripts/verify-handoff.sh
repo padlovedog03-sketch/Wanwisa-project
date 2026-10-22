@@ -37,10 +37,11 @@ unset VERIFY_HANDOFF_TIER VERIFY_BASE_REF VERIFY_UNTRACKED_INPUTS VERIFY_SELECT_
   VERIFY_FULL_TEST_CMD VERIFY_COLLECT_CMD VERIFY_ALLOWED_FILTERS VERIFY_TEST_RUNNERS \
   VERIFY_EXTRA_BANNED LINT
 # A conf with a syntax error is never "opted in": bash would keep whatever it
-# read before the error and drop the rest without a word.
+# read before the error and drop the rest without a word. bash 3.2's `bash -n`
+# prints an array left open at EOF yet exits 0, so any output is a failure too.
 conf_state="absent"
 if [ -f scripts/verify.conf ]; then
-  if "$BASH" -n scripts/verify.conf 2>/dev/null; then
+  if conf_err="$("$BASH" -n scripts/verify.conf 2>&1)" && [ -z "$conf_err" ]; then
     . scripts/verify.conf || true
     conf_state="loaded"
   else

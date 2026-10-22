@@ -29,8 +29,9 @@ export VERIFY_RUN_DIR="$RUN_DIR" VERIFY_JUNIT_DIR="$RUN_DIR/junit/tests"
 if [ -f scripts/verify.conf ]; then
   # A syntax error drops the rest of the conf without a word: check it first
   # (the same rule as verify-full.sh). A false last line is not a load failure,
-  # so `.` runs outside set -e.
-  if ! conf_err="$("$BASH" -n scripts/verify.conf 2>&1)"; then
+  # so `.` runs outside set -e. bash 3.2's `bash -n` prints an array left open at
+  # EOF yet exits 0, so any output from it is a failure too.
+  if ! conf_err="$("$BASH" -n scripts/verify.conf 2>&1)" || [ -n "$conf_err" ]; then
     echo "FAST VERIFY REFUSED — scripts/verify.conf failed to load (syntax error)"
     printf '%s\n' "$conf_err"
     exit 2
