@@ -3,17 +3,72 @@
 Status: In Review
 Owner: reviewer
 Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md
-Author-run: ab74ef54c3710742d
-Reviewer-run: a937e09bb10826b24
+Author-run: a652078d3d8838f6b
+Reviewer-run: a10b15a401c97dfa2
 Date: 2026-10-22
 
 ## Verdict: PASS
 
-Round 3 (delta review of the round-2 rework): both round-2 regressions are closed, both QA defects stay closed, and in the round-2 probe set the only case that round 1 refused and round 3 allows is `pushd WT; popd; git commit`. That spelling is a declared limit, so it is Parked (R1), not a defect.
+Increment 2 (Log) meets AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 for `log`/`verify-log` and A-AC8. The new tests are red on HEAD (139 failed) and green with the change (312 passed). The exit gate is green on its configured steps. There is one stray whitespace edit to fix before commit (see Defects, Low, not blocking).
 
-## Round 3 — increment 1 (F1) rework, delta
+## Increment 2 — Log
 
 ### Read from
+
+- Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md (increment plan row 2; AM2-AC2, AM2-AC3 (a), AM2-AC8, the `scripts/verify-fast.sh` and `test_*` rows of the files table, AM2-ADR-2, D-L11) and doc/specs/SPEC-delegated-autonomy.md (F-AC2, C-AC1, C-AC2, A-AC8 wording).
+- Change: the author's uncommitted files in worktree `.claude/worktrees/agent-a652078d3d8838f6b`, on the same HEAD as this branch (d535bfb). I ran `diff -rq` over the two trees. Exactly 8 files differ: `scripts/autonomy.py`, `scripts/verify-fast.sh`, `ci-examples/github-actions.yml`, `ci-examples/azure-pipelines.yml`, `tests/framework/test_commit_msg_owner_trailer.py`, `tests/hooks/test_guard_always_human.py`, `tests/ci/test_ci_examples.py`, and the new `tests/framework/test_decision_log.py`. A `.verify/` run directory is also present, which is a run artefact.
+- Scratch copy: reviewer scratchpad `scr/` = this worktree's HEAD (rsync, `git init`, committed as base). First the 4 test files, then the 4 production files. The author's worktree was only read, never written.
+- Not read: the author's conversation. The brief's description of the change was checked against the diff.
+
+### Criteria Review
+
+| # | Criterion | Verdict | Evidence (command run in this review) |
+|---|---|---|---|
+| Red-first | New tests red before the change | PASS | Scratch copy with only the author's 4 test files on HEAD: `python3 -m pytest tests/framework/test_decision_log.py tests/framework/test_commit_msg_owner_trailer.py tests/hooks/test_guard_always_human.py tests/ci/test_ci_examples.py -q -p no:cacheprovider` → `139 failed, 173 passed in 45.08s`. The failures include every tamper case (`edited`, `deleted`, `swapped`, `inserted-before-end`, `emptied`), `test_an_unknown_base_fails_closed`, every AM2-AC3 (a) case under `order` and `mandate`, the 3 AM2-AC8 allow cases, and the gate-6 CI cases. F-AC2 check: I put HEAD's `scripts/autonomy.py` back into the scratch copy and ran `python3 -m pytest tests/framework/test_decision_log.py -q -rA -p no:cacheprovider` → `110 failed, 4 passed`. Every F-AC2 case is red, and each one asserts `reverse: missing or not one action`, not only the exit code. The 4 green cases are `test_malformed_input_exits_2_without_a_traceback[*]`, which are green for the wrong reason (Parked P8). After restoring the author's file, the brief's command again gave `312 passed in 48.55s`. |
+| Brief's verify command | — | PASS | The same command with all 8 files → `312 passed in 48.67s`. |
+| AM2-AC2 (writer) | `log` appends one JSON line; requires the 11 fields, no `prev`; exit 2 naming the field; 13+ digits refused | PASS | `bash probes/probe_log.sh` (a throwaway repo): a full entry → rc 0, appended. Missing `why` → rc 2 `log: missing field: why`. A `prev` field is neither required nor refused (rc 0). `why: "id 1234567890123"` → rc 2 `why: looks like an identifier — describe the shape, not the value`. 12 digits → rc 0. 13 Thai digits → rc 2. 13 digits in `options[1]` → rc 2. Not JSON, a JSON list or `null` → rc 2. `NaN` in `options` → rc 2 `options: a list of text`. |
+| AM2-AC2 (verify-log) | Exit 1 naming the line on any removed or changed line; green on appends at the end | PASS | `test_decision_log.py` tamper cases (each planted red, then reverted green) pass in the 312. Probe: same commit → rc 0. Base without a log → rc 0. Empty base, a tree object or an unknown ref → rc 2 `… is not a commit` (fails closed). An edited last line → rc 1 naming a line. A file that ends without a newline and then gets an append is red on line 1, which matches `git diff` (see the probe in AM2-AC3 (a)). |
+| AM2-AC2 (CI) | The same command runs as a step in both `ci-examples/*.yml`, identically | PASS | `git diff -- ci-examples`: gate 6 has the same 5-line script in both files (`set -euo pipefail`, base from `GITHUB_BASE_REF`/`SYSTEM_PULLREQUEST_TARGETBRANCH`/`main`, `git fetch`, `verify-log --append-only "$(git merge-base "origin/$base" HEAD)"`). `test_gate_6_scripts_are_byte_identical` passes. The tests run the gate-6 script itself under `github`, `azure-pr` and `azure-push` environments, against a base that moved on after the fork. They prove the PR path. The `azure-push` case runs a detached non-main candidate, which a main-only push trigger never produces (Parked P7). Both files already check out with `fetch-depth: 0`/`fetchDepth: 0`, so `merge-base` has the history it needs. The gate-count test went from 5 to 6, which is the spec adding a gate, not a changed old case. |
+| F-AC2 | `approval`/`decision`/`provisional`/`merge` with a `reverse` outside the one-action grammar → exit 2 `reverse: missing or not one action` | PASS | Probe: `revert abc1234` → 0. `revert abc1234; rm -rf x` → 2. A trailing newline → 2. `none:   ` (blank reason) → 2. Missing → 2. A list → 2. Upper-case sha → 2. Each message is `log: reverse: missing or not one action`. |
+| AM2-AC3 (a) | A log commit that only appends needs no trailer under a live order (a new file counts); anything else is still refused, naming AH5 and the path | PASS | In the 312, under both `order` and `mandate`: a new log commits, an append commits, and changed, removed, swapped, inserted-before-the-end and deleted are refused with `always-human item AH5: doc/decisions/decision-log.jsonl is protected`. The index is judged, not the worktree. `doc/decisions/other.jsonl` and an append carrying `scripts/autonomy.json` are still refused. My own scratch probes (`test_zz_reviewer_probe.py`, deleted after the run, `4 passed`): an append plus an unprotected `README.md` commits; emptying the log is refused; an append after a last line with no newline is refused (same as `git diff`). |
+| AM2-AC8 | The guard allows `log` and `verify-log` under an order; an undefined subcommand stays AH5 | PASS | `AGENT_SUBCOMMANDS` now also holds `log` and `verify-log`, and nothing else was added (`approve-under`, `close-order` and the rest wait for their increments). In the 312: `test_the_shipped_log_subcommands_are_allowed_under_an_order` (3 spellings, including `-I` and a `$(…)` base) and `…_without_autonomy` pass. `grant` and `close-order` are refused as AH5. |
+| A-AC8 | No live autonomy → nothing changes | PASS | `check_commit` still returns `[]` before the carve-out when `state == "inactive"`. Scratch probe `test_inactive_project_edits_log_freely`: with no `scripts/autonomy.json`, rewriting a log line commits. In a project with no log, gate 6 is green (`test_no_log_on_either_side_is_green`). The exit gate below shows existing hook and CI tests unchanged and green. |
+| Out-of-Files edits | The CI YAML and `verify-fast.sh` are what the spec asks | PASS | The spec's files table lists `scripts/verify-fast.sh` ("routing lines for new scripts and tests … each"), and increment row 2 says "CI step in both YAML files". The routing change only adds `test_decision_log` and `test_commit_msg_owner_trailer` to the existing case that runs `tests/framework/ tests/hooks/`. |
+| Exit gate | `scripts/verify-full.sh` | PASS | Run on the scratch copy → `verify-full rc=0`: hooks `1489 passed`, ci-examples `43 passed`, scar-forge OK, coordinator `174 passed`, framework OK (memory 0 problems). Lint, format and tests are the template's `TODO` placeholders ("this step verified NOTHING"), the same as on HEAD. |
+
+### Defects
+
+| Severity | Description | Where | Back to |
+|---|---|---|---|
+| Low (not blocking) | A whitespace edit on a line this increment does not need: `entries, _ = verify_approvals.load_registry(…)` became `entries, _ =verify_approvals.load_registry(…)`. It changes no behaviour, but it breaks the surgical-change rule and the file's formatting. Restore the space before committing. | `scripts/autonomy.py`, `check_commit`, the `load_registry` line just after the new carve-out | ai-engineer (author run a652078d3d8838f6b) |
+
+### Hostile inputs tried (`log` unless stated)
+
+- `kind: "Approval"` (a case variant) with `reverse: "whatever"` → rc 0. The grammar check matches `kind` exactly. See Parked P1.
+- `why: ""` → rc 0. "Required" is checked as "not null", not "not empty". See Parked P2.
+- `why: "1-2345-67890-12-3"` (a national-ID shape with dashes) → rc 0. The spec says "a run of 13 or more digits", so this is spec-literal. See Parked P3.
+- `why` containing U+2028 → rc 0 and written raw (`ensure_ascii=False`). Python's `splitlines()` then counts 9 lines where `wc -l` counts 8, and after an edit of the last line `verify-log` named "line 9" instead of 8. It is still red, so only the line number is off. See Parked P4.
+- `verify-log --append-only ""`, a tree object, `nosuchref` → rc 2 (fails closed).
+
+### Parked (outside the threat model, or tests could be stronger; for the coordinator)
+
+- **P1 — `kind` is not checked against a list.** A sloppy `Approval` or ` approval` skips F-AC2's grammar. I expect increment 4's validator (not built yet) to match `kind: approval` exactly, so it would not count this entry. That is an expectation, not something I measured. A future fix is to refuse an unknown `kind`, or to normalise it.
+- **P2 — empty-string fields count as present.** C-AC1 says "lacks", which the code reads as missing or null.
+- **P3 — the identifier check misses dashed or spaced 13-digit IDs**, and checks only `options`/`choice`/`why`. Both follow the spec's wording. Widening them would be a spec change.
+- **P4 — line numbers drift on U+2028/U+2029/U+0085 inside a value.** `appended_only` splits with `str.splitlines()`. Splitting on `"\n"` only would match git. Detection is unaffected.
+- **P5 — gate 6 runs the candidate's own `scripts/autonomy.py`.** Gate 2 runs the base branch's copy of its gate code, but gate 6 does not. A candidate that broke `verify_log` would judge itself with the broken copy. Deliberate tampering is outside the brief's threat model. An accidental break is caught by `test_decision_log.py` in the same CI run.
+- **P6 — the commit carve-out reads a failed `git show HEAD:…` as "no log yet".** On any git error the old log would read as empty, and any content would count as an append. I found no input that triggers this. It is a fail-open path, noted for completeness. CI gate 6 would still catch an edit to an earlier line.
+- **P7 — on a push to `main`, gate 6 compares HEAD with itself.** `GITHUB_BASE_REF` is empty on push, so `base=main`, and `merge-base origin/main HEAD` is HEAD. The step is always green there. The PR run is where it bites. The spec defines no base for push, and the PR path is tested.
+- **P8 — 4 malformed-input tests are green before the change** (`test_malformed_input_exits_2_without_a_traceback[not-json|a-list|options-not-a-list|choice-not-text]`). They assert only exit 2 with no traceback, and on HEAD argparse rejects the unknown `log` subcommand with exit 2. Asserting the `log:` message would make them red-first. These are field checks, outside AM2-AC2's RED-FIRST clause (tamper). Tests could be stronger.
+- D-L11 (forged appended lines) is the spec's own stated limit, unchanged.
+
+## Review history
+
+### Increment 1, round 3 (reviewer run a937e09bb10826b24) — result PASS
+
+Round 3 (delta review of the round-2 rework): both round-2 regressions are closed, both QA defects stay closed, and in the round-2 probe set the only case that round 1 refused and round 3 allows is `pushd WT; popd; git commit`. That spelling is a declared limit, so it is Parked (R1), not a defect.
+
+#### Read from
 
 - Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md (increment plan row 1, F-AC1 `git commit` half). The round-2 section below has the two defects this round has to close.
 - Change: the uncommitted files in worktree `.claude/worktrees/agent-ab74ef54c3710742d`. I ran `diff -q` on each file against this branch's HEAD (3d5fe2c). `scripts/autonomy.py`, `.claude/hooks/guard_bash.py` and `tests/hooks/test_guard_always_human.py` differ. `tests/framework/test_autonomy_items.py` is identical. Against the round-2 code (the round-2 reviewer's scratch copy `rvf2-ab1fa/r2`), `guard_bash.py` is identical, and only `scripts/autonomy.py` and the test file changed.
@@ -24,7 +79,7 @@ Round 3 (delta review of the round-2 rework): both round-2 regressions are close
   - `r3` = base plus the author's 3 files.
 - The author's worktree was only read, never written. I did not read the author's conversation. The brief's summary of the change was checked against the diff.
 
-### What changed (r2 → r3, `scripts/autonomy.py` `protected_commit` only)
+#### What changed (r2 → r3, `scripts/autonomy.py` `protected_commit` only)
 
 - The walk now runs over the raw tokens instead of `segments()`. It applies `_strip_command_position` and `_split_redirects` to each command, the same steps `segments()` takes.
 - A `cd`/`pushd` moves `here` only when `moved.is_dir()`.
@@ -32,7 +87,7 @@ Round 3 (delta review of the round-2 rework): both round-2 regressions are close
 - The branch is now `current_branch(target) or current_branch(cwd)`, so a target whose branch cannot be read is judged as the starting cwd.
 - The docstring now names the safe-direction rules. It also lists these declared limits: `pushd`/`popd` stacks, `cd -`, `bash -c`, `--git-dir`/`--work-tree` and backticks.
 
-### Criteria Review
+#### Criteria Review
 
 | # | Criterion | Verdict | Evidence (command run in this review) |
 |---|---|---|---|
@@ -46,23 +101,22 @@ Round 3 (delta review of the round-2 rework): both round-2 regressions are close
 | Brief's verify command | — | PASS | Same command on `r3` → `191 passed in 14.87s`. |
 | Exit gate | `scripts/verify-full.sh` | PASS | `bash rvf3-a937e/vfull.sh` runs on `r3`, made a git repo for the run → hooks `1481 passed`, ci-examples `36 passed`, scar-forge OK, coordinator `174 passed`, framework OK (memory 0 problems), `verify-full exit=0`. Lint, format and tests are the template's `TODO` placeholders ("this step verified NOTHING"), the same as on HEAD. |
 
-### Defects
+#### Defects
 
 None.
 
-### Observations (no action required)
+#### Observations (no action required)
 
 - **The fallback refuses some commits that would never land on `main`.** `current_branch(target) or current_branch(cwd)` judges a commit as `main` when its target is not a repo, for example `cd /tmp && git commit` from a `main` checkout. Git would fail there anyway, so nothing lands on `main`. This is the safe direction, and the docstring states it ("a target whose branch cannot be read is judged as the starting `cwd`").
 - **The walk repeats `segments()` instead of calling it.** The new loop duplicates `segments()`'s splitting so that it can see the `( )` tokens. `segments()` is unchanged, so the two can drift apart if one is edited later. This is a code-quality note, not a defect.
 
-### Parked (for the coordinator)
+#### Parked (for the coordinator)
 
 - R1 (`pushd`/`popd` stacks) stays parked. It is declared in the docstring, and in the round-2 probe set it is the only round-1 refusal that is still allowed.
 - R2 (`cd -`) is parked, and the probe now refuses it only by accident (see (c)). R3 (status read at the hook cwd) is unchanged. Round-1 P1, P3 and P4 are unchanged.
 
-## Review history
 
-### Round 2 (reviewer run ab1fa0c0beac00430) — result FAIL
+### Increment 1, round 2 (reviewer run ab1fa0c0beac00430) — result FAIL
 
 Both QA defects were closed, but the rework lost coverage in the refused half of F-AC1. Round 1 refused two commits that land on `main` by plain mistake, and round 2 allowed them: `cd` to a missing directory followed by `; git commit`, and `( cd` into the worktree `… ); git commit`.
 
@@ -123,7 +177,7 @@ Both QA defects were closed, but the rework lost coverage in the refused half of
 - **R3 — status is read where the hook runs, not where the commit lands.** A session whose cwd is outside the opted-in project, running `cd <project on main> && git commit`, is allowed. The same was true in round 1, so this is the same family as QA Q1's evasion direction.
 - Round-1 P1 (cherry-pick/revert/commit-tree/alias/`bash -c`), P3 and P4 are unchanged. P2 is closed by the new `absence-main` rows.
 
-### Round 1 (reviewer run a0705137a137aecbc) — result PASS, later failed by QA at 17ce083
+### Increment 1, round 1 (reviewer run a0705137a137aecbc) — result PASS, later failed by QA at 17ce083
 
 Increment 1 (F1) refuses an agent `git commit` on a protected branch while autonomy is active, allows it on a working branch, leaves projects without live autonomy exactly as before, and the new refusal tests are red against the old code.
 
@@ -178,3 +232,4 @@ None.
 - **2026-10-22 — drafted (increment 1, F1).** Reviewer run a0705137a137aecbc, from the spec, the author's uncommitted 3-file diff in worktree agent-ab74ef54c3710742d, and commands run on scratch copies. PASS.
 - **2026-10-22 — round 2 (rework after QA FAIL at 17ce083).** Reviewer run ab1fa0c0beac00430, from the spec, the QA report, the author's uncommitted 3-file rework in worktree agent-ab74ef54c3710742d, and commands run on scratch copies (`rvf2-ab1fa/`). FAIL: the QA defects are closed, but 2 regressions appeared in F-AC1's refused half.
 - **2026-10-22 — round 3 (delta after round-2 FAIL).** Reviewer run a937e09bb10826b24, from the spec, the round-2 section, the author's uncommitted 3-file rework in worktree agent-ab74ef54c3710742d, and commands run on scratch copies (`rvf3-a937e/`). PASS: both regressions are closed and both QA defects stay closed. In the round-2 probe set, the only round-1 refusal still allowed is the declared `pushd`/`popd` limit.
+- **2026-10-22 — increment 2 (Log).** Reviewer run a10b15a401c97dfa2, from the spec, the parent spec's F-AC2/C-AC1/C-AC2/A-AC8 rows, the author's uncommitted 8-file change in worktree agent-a652078d3d8838f6b, and commands run on a scratch copy (`scr/`). PASS: red-first 139 failed on HEAD, 312 passed with the change, exit gate rc 0. One Low, non-blocking defect (a stray whitespace edit). P1–P8 are parked.
