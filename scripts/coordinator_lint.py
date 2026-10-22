@@ -441,6 +441,9 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"coordinator-lint: cannot read {argv[0]}: {exc.strerror}", file=sys.stderr)
         return 2
+    except UnicodeDecodeError:
+        print(f"coordinator-lint: cannot read {argv[0]}: not UTF-8", file=sys.stderr)
+        return 2
 
     violations = lint(text)
     if not violations:

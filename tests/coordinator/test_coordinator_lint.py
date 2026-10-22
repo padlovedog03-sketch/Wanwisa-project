@@ -704,3 +704,17 @@ def test_a_directory_path_is_a_plain_error_not_a_traceback(tmp_path: Path) -> No
     )
     assert result.returncode == 2
     assert "Traceback" not in result.stderr and str(tmp_path) in result.stderr
+
+
+def test_a_non_utf8_file_is_one_plain_error_and_exits_2_not_1(tmp_path: Path) -> None:
+    """D9: an undecodable file used to traceback with exit 1 — the same code
+    as "violations found", so a caller could not tell a bad input from a
+    report that failed the lint."""
+    bad = tmp_path / "latin1-report.md"
+    bad.write_bytes(b"CLAIM: caf\xe9 \xff\xfe\n")
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPT), str(bad)], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert result.stderr.strip() == f"coordinator-lint: cannot read {bad}: not UTF-8"
