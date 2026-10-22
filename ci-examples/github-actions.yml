@@ -117,13 +117,14 @@ jobs:
       #
       # ตัวยึดที่รอดมาถึง production อ่านเหมือนข้อความจริง คนจึงไม่ไปตามหา
       # doc/templates/ กับ doc/framework/ ยกเว้นเพราะตั้งใจให้มีตัวยึด
+      # .claude/worktrees/ ยกเว้นเพราะเป็นสำเนาชั่วคราวของเอเจนต์ ไม่ใช่ไฟล์ของโปรเจกต์
       # ---------------------------------------------------------------
       - name: ไม่มีตัวยึดหลงเหลือ
         run: |
           set -euo pipefail
           LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude .agents doc scripts AGENTS.md README.md 2>/dev/null \
                  | grep -v 'doc/framework/' | grep -v 'doc/templates/' \
-                 | grep -v 'scripts/bootstrap.sh' || true)
+                 | grep -v 'scripts/bootstrap.sh' | grep -v '^\.claude/worktrees/' || true)
           if [ -n "$LEFT" ]; then
             echo "พบตัวยึดที่ยังไม่ได้เติม:" >&2
             echo "$LEFT" >&2
