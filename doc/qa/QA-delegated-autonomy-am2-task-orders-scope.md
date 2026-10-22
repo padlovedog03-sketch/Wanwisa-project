@@ -7,7 +7,60 @@ Date: 2026-10-22
 
 ## Verdict: PASS
 
+Increment 2 (Log): AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 for `log`/`verify-log` and A-AC8 all pass, end to end in throwaway repos, with the full suite and `scripts/verify-full.sh` green (rc=0). No defects. Five observations are parked (see Increment 2 — Log).
+
 Increment 1 (F1), re-test 2: F-AC1 (commit half) and A-AC8 (guard half) both pass. Both defects from the first QA run are closed. A commit into a `wip/x` worktree is now allowed when the hook's cwd is on `main`, and a commit on an unborn `main` is now refused under autonomy. The reverse direction (a worktree cwd committing into `main`) is refused. With no live autonomy, behaviour is unchanged. The first run's FAIL is kept below as history.
+
+## Increment 2 — Log
+
+### Scope and provenance
+
+- Tier 1. The human approved at the brief. Review PASS: doc/qa/REVIEW-delegated-autonomy-am2-task-orders-scope.md (Reviewer-run a10b15a401c97dfa2, Author-run a652078d3d8838f6b). It parked P1–P8.
+- Change under test: the uncommitted 8-file diff in worktree `.claude/worktrees/agent-a652078d3d8838f6b`. Its HEAD is d535bfb, and between d535bfb and this branch's HEAD 996c3e4 only the REVIEW file differs. The 8 files are `scripts/autonomy.py`, `scripts/verify-fast.sh`, both `ci-examples/*.yml`, `tests/ci/test_ci_examples.py`, `tests/framework/test_commit_msg_owner_trailer.py`, `tests/hooks/test_guard_always_human.py` and the new `tests/framework/test_decision_log.py`.
+- Scratch copies in the QA scratchpad `qaf2-1792678957/`: `old` = `git archive 996c3e4`, and `new` = the same plus the 8 files. `diff -rq old new` shows exactly those 8. Every throwaway repo had `HOME` and `APPROVAL_LOG` pointed at temp dirs, so the real registry was never read or written. Each one used the tree's own `.githooks/commit-msg` through `core.hooksPath`.
+- The reviewer's Low defect (the stray whitespace in `entries, _ =verify_approvals.load_registry`) is closed. `grep -n "entries, _ ="` over the worktree's `scripts/autonomy.py` → line 1210 `entries, _ = verify_approvals.load_registry(…)`.
+
+### Criteria Results
+
+| # | Criterion | Verdict | Evidence (test / command) |
+|---|---|---|---|
+| AM2-AC2 (writer) | `log` appends one JSON line, requires 11 fields with no `prev`, exits 2 naming the field, and refuses a run of 13+ digits | PASS | `e2e.sh` in a repo with a live order (`status` → `order order-proj-first-2026-10-22`). Two full entries (`decision`, `approval`) → rc 0. Missing `why` → rc 2 `log: missing field: why`. `why` holding `1234567890123` → rc 2 `log: why: looks like an identifier — describe the shape, not the value`. 12 digits → rc 0. 13 digits in `choice` → rc 2 naming `choice`. 13 Thai digits in `options` → rc 2 naming `options`. Not JSON → rc 2 `the entry is not JSON`. A JSON list → rc 2 `an entry is one JSON object`. Afterwards the log holds exactly the 3 accepted lines (`wc -l` → 3), and `grep -c '"prev"'` → 0. Run from a subdirectory, `log` writes to the repo root's `doc/decisions/decision-log.jsonl`, not under the subdirectory. |
+| AM2-AC2 (verify-log) | `verify-log --append-only &lt;base&gt;` exits 1 naming the line on any removed or changed line, and is green on appends at the end. Planted red: edit, delete, swap | PASS | Same repo. After two committed appends: `verify-log --append-only <first log commit>` → rc 0 `only grows at the end`. The tampered commits went in with `--no-verify`, the route the hook does not see. An edited line 1 → rc 1 `line 1 was removed or changed … the decision log is append-only`. Lines 1 and 2 swapped → rc 1, line 1. Line 2 deleted → rc 1, line 2. The whole log deleted → rc 1, line 1. Each was reverted (`git reset --hard`), and the check was green again → rc 0. `nosuchref` → rc 2 `is not a commit` (fails closed). |
+| AM2-AC2 (CI) | The same command runs as a step in both `ci-examples/*.yml`, identically | PASS | I extracted the gate-6 script from each YAML, from the `run: \|` / `- script: \|` line down to the `verify-log` line, and stripped the indent. `diff` → identical, 5 lines. I ran the GitHub script itself in the throwaway repo, with a bare `origin` whose `main` held the first log commit and then moved on by an unrelated commit. With `GITHUB_BASE_REF=main`, an append-only PR → rc 0, with the merge-base as the base. A PR editing line 1 → rc 1 naming line 1. A PR swapping lines → rc 1. Azure spelling (`GITHUB_BASE_REF` unset, `SYSTEM_PULLREQUEST_TARGETBRANCH=refs/heads/main`) → rc 0 on the append-only PR. |
+| F-AC2 | `approval`/`decision`/`provisional`/`merge` with a `reverse` outside the one-action grammar → exit 2 `reverse: missing or not one action` | PASS | `approval` `revert abc1234; rm -rf x` → rc 2. `merge` `git revert HEAD` → rc 2. `provisional` `delete branch wip/x and revert abc1234` → rc 2. `approval` with `reverse: null` → rc 2. `decision` `none:   ` (blank reason) → rc 2. Each message is `log: reverse: missing or not one action`. Accepted: `none: nothing applied yet`, `revert abc1234`, `delete branch wip/y` (on a `merge`), `restore doc/a.md from abc1234` and `remove stamp doc/specs/SPEC-x.md` → rc 0. |
+| AM2-AC3 (a) | Under autonomy, a log commit that only appends needs no trailer (a new file counts). Any other change is refused, naming AH5 and the path | PASS | Live order, real `git commit` through `.githooks/commit-msg`, no trailer. New log → rc 0. Append → rc 0. Append plus an unprotected `README.md` → rc 0. Refused with rc 1 `check-commit: always-human item AH5: doc/decisions/decision-log.jsonl is protected while autonomy is active`: an edited line 1, the same edit with `Owner-Approved: order-proj-first-2026-10-22` (`a mandate or order key never counts`), swapped lines 1 and 2, a line inserted before the end, and deleting the log. Red on old: the same live-order repo on `old`, with a new hand-written log and no trailer → refused with the same AH5 line. |
+| AM2-AC8 (`log`, `verify-log`) | Under an order, `guard_bash.py` allows `autonomy.py log`/`verify-log`. An undefined subcommand stays AH5 | PASS | Guard payloads, cwd = the live-order repo. On new, `python3 scripts/autonomy.py log --entry '{}'` → 0 and `python3 -I scripts/autonomy.py verify-log --append-only main` → 0. `grant x`, `close-order k` and `approve-under doc/specs/SPEC-x.md` → 2 `always-human item AH5 — matched: autonomy.py <sub>`; those wait for later increments. Red on old: `log` and `verify-log` → 2 AH5. |
+| A-AC8 | No live autonomy → nothing changes | PASS | `aac8.sh`: no `scripts/autonomy.json` and an empty registry, run on old and new. A hand-written log, then a new-log commit, an edit, a swap and a delete. Old and new give identical results: every commit rc 0, `status` → `inactive`, and the guard allows `git commit -m x`, `git push origin main`, `git merge feature/x` and `autonomy.py log …` (rc 0) on both. On new without autonomy, `log` and `verify-log` work the same as under the order (`e2e.sh … none`), and the guard allows `grant`/`close-order`/`approve-under` as before. The full suite and the exit gate are green (Test Run). |
+
+### Test Run (increment 2)
+
+```
+python3 -m pytest tests -q -p no:cacheprovider          (on new)
+2365 passed, 3 skipped in 530.27s (0:08:50)   rc=0
+
+scripts/verify-handoff.sh --status  → not opted in
+scripts/verify-full.sh > verify-full.log 2>&1           (on new, made a git repo for the run)
+  TODO lint/format/tests  not configured — this step verified NOTHING   (template placeholders, as on HEAD)
+  OK   hooks             (249s) 1489 passed in 248.82s (0:04:08)
+  OK   ci-examples       (9s) 43 passed in 8.32s
+  OK   scar-forge        (1s)
+  OK   coordinator       (10s) 174 passed in 4.94s
+  OK   framework         (260s) memory: 0 problem(s)
+Everything configured passed, and that is ALL this run proves.
+verify-full rc=0
+```
+
+### Edge Cases Probed (beyond the table)
+
+- The `none` e2e run on new looked like a refusal on "edit with the order key trailer" (rc 1). It is not one: `git log` shows the edit was already committed as `de4b1a0 chore: edit` one step earlier, so there was nothing to commit. Inactive behaviour is judged by `aac8.sh` only.
+- On old, `e2e.sh` writes nothing, because argparse rejects `log`/`verify-log` (`usage: … {items,status,check-commit}`, rc 2). So old's gate-6 rows say nothing either way. They are not counted as evidence.
+
+### Parked (increment 2; outside the threat model or tests could be stronger)
+
+- **Q5 — one problem hides the others.** `log_problems` returns early on the `reverse` problem. `{"kind":"approval","reverse":"bad"}` → rc 2 naming only `reverse: missing or not one action`, not the 9 missing fields. It still exits 2 on an entry that lacks fields, so AM2-AC2 is met. Only the diagnostic is incomplete.
+- **Q6 — empty strings count as present.** `why: ""` → rc 0. This repeats reviewer P2.
+- **Q7 — `log` trusts the file to end with a newline.** `append_log` opens in append mode and writes `json + "\n"`. A hand-edited log without a final newline would get the new entry glued onto its last line. Every line `log` writes ends in a newline, and a glued line is caught as a change by `verify-log` and the commit carve-out. Not probed further.
+- Reviewer P1, P3, P4, P5, P6, P7 and P8 are unchanged, and I saw nothing that moves them into scope.
 
 ## Increment 1 — F1
 
@@ -164,3 +217,4 @@ Both rows above are from the first increment-1 run (commit 17ce083). Both are cl
 
 - **2026-10-22 — drafted (increment 1, F1).** QA run, from the spec, the review, and the author's uncommitted 3-file diff in worktree agent-ab74ef54c3710742d, with every command run on scratch copies. FAIL: 2 defects (`missed-ac`), 3 of 4 rows PASS.
 - **2026-10-22 — re-test 2 (increment 1, F1).** Re-ran the first run's repros and extra `cd`/`-C`/unborn probes on scratch copies of HEAD db71dda plus the reworked 3-file diff (review round 3 PASS). PASS: both defects closed, the reverse direction refused, A-AC8 unchanged, owner commit path unchanged. Full pytest and `scripts/verify-full.sh` rc=0.
+- **2026-10-22 — increment 2 (Log).** Verified the author's uncommitted 8-file diff (worktree agent-a652078d3d8838f6b, review PASS) on scratch copies of HEAD 996c3e4 plus the 8 files. Tested end to end in throwaway repos, with and without a live order, against the old tree as a red-first reference. PASS: AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 (`log`, `verify-log`) and A-AC8, with no defects. Full pytest `2365 passed, 3 skipped` and `scripts/verify-full.sh` rc=0.
