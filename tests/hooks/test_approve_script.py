@@ -524,3 +524,46 @@ def test_the_owner_wrappers_print_help_and_write_nothing(repo: Path, script: str
     after = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True,
                            check=True).stdout
     assert after == before
+
+
+# --- a document stamped under an order is never the owner's to re-stamp -----
+# (DESIGN-delegated-autonomy §A: `approve.py` refuses to stamp a document that
+# already has an `Approved-under:` line; SPEC am2 row-5 increment 4.)
+
+
+@pytest.mark.parametrize("status", ["Approved", "In Review"])
+def test_a_document_carrying_an_approved_under_stamp_is_refused(repo: Path, status: str) -> None:
+    content = _document(status=status).replace(
+        "Upstream: none\n", "Upstream: none\nApproved-under: order order-proj-first-2026-10-22\n"
+    )
+    path = _write(repo, "SPEC-stamped.md", content)
+
+    result = _run(repo, "stamped", "--by", "somchai")
+
+    assert result.returncode == 1
+    assert "Approved-under:" in result.stderr
+    assert path.read_text(encoding="utf-8") == content
+    assert not (repo / "registry.jsonl").exists()
+
+
+def test_a_slug_never_matches_an_order_document(repo: Path) -> None:
+    """Orders are issued by delegate.sh, never approved by approve.sh. With an
+    issued `ORDER-proj-first.md` present, `approve.sh first` approves the
+    spec as it did before `doc/orders` became a document folder, instead of
+    refusing the batch because the order is already Approved."""
+    orders = repo / "doc" / "orders"
+    orders.mkdir(parents=True)
+    order = orders / "ORDER-proj-first.md"
+    order.write_text("# ORDER: proj-first\n\nStatus: Approved\nApproval: order-proj-first-2026-10-22\n\n"
+                     + APPROVAL_HISTORY, encoding="utf-8")
+    subprocess.run(["git", "add", str(order)], cwd=repo, check=True)
+    _write(repo, "SPEC-first.md", _document())
+
+    result = _run(repo, "first", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "doc/specs/SPEC-first.md" in result.stdout
+    assert "ORDER-proj-first" not in result.stdout + result.stderr
+
+    listed = _run(repo, "--list")
+    assert "ORDER-proj-first" not in listed.stdout

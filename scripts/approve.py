@@ -65,7 +65,12 @@ from pathlib import Path
 #: Where approvable documents live. Must match the handoff protocol's layout;
 #: `doc/templates/` and `doc/framework/` are excluded on purpose — templates
 #: carry placeholder lines that must never be approvable.
-DOC_DIRS = ("doc/requirements", "doc/specs", "doc/architecture", "doc/qa", "doc/tasks")
+DOC_DIRS = ("doc/requirements", "doc/specs", "doc/architecture", "doc/qa", "doc/tasks", "doc/orders")
+
+#: The folders a slug is matched in. Orders are issued by delegate.sh and
+#: never approved here: an order named like the work it covers
+#: (`ORDER-<project>-<s>.md`) must not drag itself into `approve.sh <s>`.
+SLUG_DIRS = tuple(d for d in DOC_DIRS if d != "doc/orders")
 
 #: The status a document must be in to be approvable, out of the vocabulary
 #: AGENTS.md §5 fixes (`Draft | In Review | Approved | Done | Living`).
@@ -124,6 +129,8 @@ LIMIT_NOTICE = (
 #: are never mistaken for the document's own.
 STATUS_LINE = re.compile(r"^Status: (.+)$", re.MULTILINE)
 SECTION_LINE = re.compile(rf"^{re.escape(REQUIRED_SECTION)}\s*$", re.MULTILINE)
+#: The stamp of an approval made under an order (DESIGN-delegated-autonomy §A).
+APPROVED_UNDER_LINE = re.compile(r"^Approved-under:", re.MULTILINE)
 
 
 class ApprovalError(RuntimeError):
@@ -223,7 +230,7 @@ def find_documents(slug: str, tracked: set[str]) -> list[Path]:
     matches = [
         REPO_ROOT / rel
         for rel in sorted(tracked)
-        if any(rel.startswith(f"{d}/") for d in DOC_DIRS) and needle in Path(rel).name.lower()
+        if any(rel.startswith(f"{d}/") for d in SLUG_DIRS) and needle in Path(rel).name.lower()
     ]
     return matches
 
@@ -266,6 +273,11 @@ def validate(path: Path, tracked: set[str], today: str) -> Candidate:
 
     text = path.read_text(encoding="utf-8")
     status = read_status(text, relative)
+    if APPROVED_UNDER_LINE.search(text):
+        raise ApprovalError(
+            f"{relative}: มีบรรทัด `Approved-under:` — เอกสารนี้ถูกอนุมัติภายใต้คำสั่งงานแล้ว "
+            "ไม่ประทับซ้ำด้วยคีย์ของเจ้าของงาน (ถอนตราออกก่อน ถ้าจะอนุมัติเอง)"
+        )
     if status == APPROVED:
         raise ApprovalError(f"{relative}: เป็น `Status: {APPROVED}` อยู่แล้ว — ไม่มีอะไรให้ทำ")
     if status != APPROVABLE_FROM:
@@ -316,7 +328,7 @@ def list_pending(tracked: set[str]) -> list[str]:
     """Every tracked document currently awaiting approval."""
     pending = []
     for rel in sorted(tracked):
-        if not any(rel.startswith(f"{d}/") for d in DOC_DIRS):
+        if not any(rel.startswith(f"{d}/") for d in SLUG_DIRS):
             continue
         text = (REPO_ROOT / rel).read_text(encoding="utf-8")
         found = STATUS_LINE.findall(text)

@@ -18,8 +18,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -456,3 +459,186 @@ def test_no_duplicate_note_without_duplicates(cli_repo: Path) -> None:
     result = _run_cli(cli_repo, registry)
     assert result.returncode == 0, result.stdout
     assert "legacy duplicate key" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Approval under an order (SPEC-delegated-autonomy-am2-task-orders-scope
+# AM2-AC5, A-AC5 (1), A-AC7's verify half). A document stamped
+# `Approved-under: order <key>` resolves through `autonomy.validate_approval`
+# (ADR-3), never through a registry line of its own. Every case builds a
+# throwaway opted-in repo with the order issued by `delegate.sh` and committed
+# by the owner; the registry lives in `tmp_path`.
+# ---------------------------------------------------------------------------
+
+_ORDER_TODAY = date.today().isoformat()
+_ORDER_KEY = f"order-proj-first-{_ORDER_TODAY}"
+_ORDER_DOC = "doc/orders/ORDER-proj-first.md"
+_ORDER_SPEC = "doc/specs/SPEC-first.md"
+_ORDER_LOG = "doc/decisions/decision-log.jsonl"
+_ORDER_SCRIPTS = ("approve.py", "approve.sh", "delegate.sh", "revoke.sh", "autonomy.py", "verify_approvals.py",
+                  "check_fix_has_test.py", "verify-merge.sh")
+_TOUCHES_NONE = "Decision-class: tier-1; touches: none"
+
+
+def _order_git(repo: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, env=env, check=False)
+
+
+@pytest.fixture
+def ordered_repo(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / ".githooks").mkdir()
+    (repo / "doc" / "templates").mkdir(parents=True)
+    (repo / "doc" / "specs").mkdir(parents=True)
+    for name in _ORDER_SCRIPTS:
+        shutil.copy2(_REPO_ROOT / "scripts" / name, repo / "scripts" / name)
+    shutil.copy2(_REPO_ROOT / ".githooks" / "commit-msg", repo / ".githooks" / "commit-msg")
+    shutil.copy2(_REPO_ROOT / "doc" / "templates" / "order.md", repo / "doc" / "templates" / "order.md")
+    (repo / "scripts" / "autonomy.json").write_text('{"project": "proj"}\n', encoding="utf-8")
+    (repo / _ORDER_SPEC).write_text(
+        f"# probe\n\nStatus: In Review\nUpstream: x\n{_TOUCHES_NONE}\n\n## Approval history\n\n- drafted.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "registry.jsonl").write_text("", encoding="utf-8")
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(tmp_path / "home"),
+           _REGISTRY_ENV: str(tmp_path / "registry.jsonl"), "GIT_AUTHOR_NAME": "t",
+           "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test"}
+    assert _order_git(repo, env, "init", "-q", "-b", "feature/x").returncode == 0
+    _order_git(repo, env, "config", "core.hooksPath", ".githooks")
+    _order_git(repo, env, "add", "-A")
+    assert _order_git(repo, env, "commit", "-q", "-m", "base").returncode == 0
+    _delegate_in(repo, env, "first")
+    committed = _order_git(repo, env, "commit", "-q", "-m", "order", "-m", f"Owner-Approved: {_ORDER_KEY}")
+    assert committed.returncode == 0, committed.stderr
+    return repo, env
+
+
+def _delegate_in(repo: Path, env: dict[str, str], slug: str) -> None:
+    until = (date.today() + timedelta(days=30)).isoformat()
+    issued = subprocess.run(["bash", "scripts/delegate.sh", "build it", "--by", "o", "--until", until, "--slug", slug],
+                            cwd=repo, capture_output=True, text=True, env=env, check=False)
+    assert issued.returncode == 0, issued.stderr
+
+
+def _order_verify(repo: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, str(repo / "scripts" / "verify_approvals.py")], cwd=repo,
+                          capture_output=True, text=True, env=env, timeout=60, check=False)
+
+
+def _registry_append(env: dict[str, str], entry: dict) -> None:
+    with Path(env[_REGISTRY_ENV]).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
+
+
+def _forge(repo: Path, env: dict[str, str], rel: str, key: str, *, decision: str = _TOUCHES_NONE,
+           log: bool = True, ts: str | None = None) -> None:
+    """A stamp written by hand, with (or without) a matching log line."""
+    akey = f"forged-{Path(rel).stem.lower()}"
+    path = repo / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"# probe\n\nStatus: Approved\nApproval: {akey}\nApproved-under: order {key}\nUpstream: x\n{decision}\n\n"
+        "## Approval history\n",
+        encoding="utf-8",
+    )
+    assert _order_git(repo, env, "add", "--", rel).returncode == 0
+    if not log:
+        return
+    entry = {"id": akey, "ts": ts or datetime.now().astimezone().isoformat(timespec="seconds"),
+             "project": "proj", "kind": "approval", "class": "tier-1", "under": f"order {key}", "artifact": rel,
+             "options": ["a", "b"], "choice": "a", "why": "forged", "reverse": f"remove stamp {rel}"}
+    (repo / _ORDER_LOG).parent.mkdir(parents=True, exist_ok=True)
+    with (repo / _ORDER_LOG).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
+
+
+def test_the_order_folder_is_a_document_folder_for_both_registry_consumers() -> None:
+    approve = _load(_APPROVE_PATH, "framework_approve_doc_dirs_probe")
+    assert "doc/orders" in verifier._DOC_DIRS
+    assert set(approve.DOC_DIRS) == set(verifier._DOC_DIRS)
+
+
+def test_a_document_approved_under_a_live_order_verifies(ordered_repo: tuple[Path, dict[str, str]]) -> None:
+    repo, env = ordered_repo
+    under = subprocess.run([sys.executable, "-I", "scripts/autonomy.py", "approve-under", _ORDER_SPEC, "--order",
+                            _ORDER_KEY], cwd=repo, capture_output=True, text=True, env=env, check=False)
+    assert under.returncode == 0, under.stderr
+    result = _order_verify(repo, env)
+    assert result.returncode == 0, result.stdout
+    assert "2 document(s) declare" in result.stdout  # the order document and the stamped spec
+
+
+def test_a_stamp_with_no_decision_log_entry_fails(ordered_repo: tuple[Path, dict[str, str]]) -> None:
+    """A-AC5 (1), the self-approval case: hand-edited to Approved with a real
+    order key and no log entry."""
+    repo, env = ordered_repo
+    _forge(repo, env, _ORDER_SPEC, _ORDER_KEY, log=False)
+    result = _order_verify(repo, env)
+    assert result.returncode == 1, result.stdout
+    assert "approved-under stamp has no decision-log entry" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    [
+        ("a", "is not a kind order registry entry"),
+        ("b", "expired"),
+        ("c", "revoked"),
+        ("d", "order document not committed as issued"),
+        ("e", "outside the order — stop and ask (R42)"),
+        ("f", "AH2"),
+        ("g", "never approved under an order"),
+    ],
+)
+def test_a_hand_forged_order_stamp_fails_naming_its_reason(
+    ordered_repo: tuple[Path, dict[str, str]], case: str, reason: str
+) -> None:
+    """AM2-AC5: `verify_approvals.py` fails a hand-forged stamp for each of
+    (a)–(g), even with a matching log line."""
+    repo, env = ordered_repo
+    rel, key, decision = _ORDER_SPEC, _ORDER_KEY, _TOUCHES_NONE
+    if case == "a":
+        key = "order-proj-nothing-2026-01-01"
+    elif case == "b":
+        key, rel = "order-proj-old-2026-01-01", "doc/specs/SPEC-old.md"
+        _registry_append(env, {"key": key, "artifact": "doc/orders/ORDER-proj-old.md", "status": "Approved",
+                               "approved_by": "o", "approved_at": "2026-01-01T00:00:00+00:00", "kind": "order",
+                               "grants": ["spec"], "expires": "2026-01-31", "task_sha256": "0" * 64})
+    elif case == "c":
+        _registry_append(env, {"key": f"revoke-{key}", "artifact": _ORDER_DOC, "status": "Revoked",
+                               "approved_by": "o", "approved_at": "2000-01-01T00:00:00+00:00",
+                               "kind": "revocation", "revokes": key})
+    elif case == "d":
+        _delegate_in(repo, env, "second")  # staged by delegate.sh, never committed
+        key, rel = f"order-proj-second-{_ORDER_TODAY}", "doc/specs/SPEC-second.md"
+    elif case == "e":
+        rel = "doc/specs/SPEC-other.md"
+    elif case == "f":
+        decision = "Decision-class: tier-1; touches: security"
+    else:
+        rel = _ORDER_DOC
+    _forge(repo, env, rel, key, decision=decision)
+    result = _order_verify(repo, env)
+    assert result.returncode == 1, result.stdout
+    assert reason in result.stdout, result.stdout
+
+
+def test_an_approval_made_before_the_revocation_stays_valid_and_one_after_fails(
+    ordered_repo: tuple[Path, dict[str, str]],
+) -> None:
+    """A-AC7, verify half: a revocation counts from its own time."""
+    repo, env = ordered_repo
+    now = datetime.now().astimezone()
+    _forge(repo, env, _ORDER_SPEC, _ORDER_KEY, ts=(now - timedelta(hours=2)).isoformat(timespec="seconds"))
+    _registry_append(env, {"key": f"revoke-{_ORDER_KEY}", "artifact": _ORDER_DOC, "status": "Revoked",
+                           "approved_by": "o", "approved_at": (now - timedelta(hours=1)).isoformat(timespec="seconds"),
+                           "kind": "revocation", "revokes": _ORDER_KEY})
+    before = _order_verify(repo, env)
+    assert before.returncode == 0, before.stdout
+
+    _forge(repo, env, "doc/specs/SPEC-first-later.md", _ORDER_KEY, ts=now.isoformat(timespec="seconds"))
+    after = _order_verify(repo, env)
+    assert after.returncode == 1, after.stdout
+    assert f"doc/specs/SPEC-first-later.md  key='forged-spec-first-later'  — order {_ORDER_KEY} revoked" in after.stdout
+    assert f"{_ORDER_SPEC}  key=" not in after.stdout
