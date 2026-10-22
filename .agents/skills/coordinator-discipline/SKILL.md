@@ -185,19 +185,29 @@ Files:
 Spec: doc/specs/SPEC-<slug>.md     # omit for Tier 0
 Verify with: <test selector, run in the author's worktree>
 
-# qa
-Tier: <0|1|2> — QA
+# qa, Tier 0
+Tier: 0 — QA
+Files:
+- doc/qa/QA-bugfix-<id>.md
+NO_SPEC_BUGFIX: <the repro command and its red line>
+Review: doc/qa/REVIEW-bugfix-<id>.md
+Verify with: python3 -m pytest tests -q -p no:cacheprovider; scripts/verify-full.sh > <log>
+
+# qa, Tier 1–2 (never write the bugfix token anywhere in this brief: its mere presence
+# switches the guard to bugfix mode)
+Tier: <1|2> — QA
 Files:
 - doc/qa/QA-<slug>.md
-Spec: doc/specs/SPEC-<slug>.md     # Tier 1–2; for Tier 0 use NO_SPEC_BUGFIX: <repro> instead
+Spec: doc/specs/SPEC-<slug>.md
 Review: doc/qa/REVIEW-<slug>.md
 Verify with: python3 -m pytest tests -q -p no:cacheprovider; scripts/verify-full.sh > <log>
 ```
 
 Every reviewer and QA brief also states the threat model of scope-discipline rule 5, and on Tier 0
-the one-rework-round rule of rule 4. **Run IDs:** spawn reviewers and QA with an isolated worktree
-so `Reviewer-run:` is the worktree's `agent-<id>`. If it still comes back as `<id>`, fill it from
-the spawn result. Never accept an ID guessed from another agent's worktree; on 2026-10-22 three
+the one-rework-round rule of rule 4. **Run IDs:** spawn reviewers with an isolated worktree so
+`Reviewer-run:` is the worktree's `agent-<id>`. An isolated reviewer can write only inside its own
+worktree, so it writes the review there and the coordinator copies it to the main tree's
+`doc/qa/`. If the ID still comes back as `<id>`, fill it from the spawn result. Never accept an ID guessed from another agent's worktree; on 2026-10-22 three
 reviews did that, and one wrong guess could equal `Author-run:` and open the gate.
 **Docs that quote a placeholder** (an upper-case word in angle brackets) turn CI gate 3 red; write
 it escaped as `&lt;…&gt;`.
