@@ -635,13 +635,16 @@ def _only_checks(words: list[str]) -> bool:
 def _owner_script(words: list[str]) -> str | None:
     """The owner script this segment runs, found by basename ANYWHERE in its
     argv (so a wrapper nobody listed still cannot hide it), unless the program
-    only reads its arguments or a read-only flag follows the script."""
+    only reads its arguments or a read-only flag follows the script. Tokens
+    after the script's first `--` are operands, never flags."""
     effective = _effective(words)
     if not effective or _name(effective[0]) in _READERS or _only_checks(words):
         return None
     for index, token in enumerate(effective):
         if _name(token) in OWNER_SCRIPTS:
-            if READ_ONLY_FLAGS.intersection(effective[index + 1 :]):
+            args = effective[index + 1 :]
+            options = args[: args.index("--")] if "--" in args else args
+            if READ_ONLY_FLAGS.intersection(options):
                 return None
             return _name(token)
     return None
