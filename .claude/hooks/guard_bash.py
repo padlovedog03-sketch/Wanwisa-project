@@ -406,11 +406,19 @@ def _apply_core(command: str) -> None:
                 f"forms (`--list`, `--dry-run`) stay allowed."
             )
 
-    if not matches:
+    on_protected = autonomy.protected_commit(command, config, cwd)
+    if not matches and not on_protected:
         return
     state = autonomy.status(root)
     if state == "inactive":
         return
+    if on_protected:
+        _block(
+            f"BLOCKED (.claude/hooks/guard_bash.py, rule F-AC1): git commit on protected "
+            f"branch {on_protected} — work under autonomy happens on a branch or worktree.\n"
+            f"Autonomy is active ({state}). Create or switch to a working branch "
+            f"(`git switch -c <branch>`) or a worktree, and commit there.{config_problem}"
+        )
     match = matches[0]
     _block(
         f"BLOCKED (.claude/hooks/guard_bash.py): always-human item {match.item} — "

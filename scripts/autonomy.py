@@ -814,6 +814,55 @@ def command_matches(
     return found
 
 
+def protected_commit(command: str, config: dict, cwd: Path) -> str | None:
+    """The protected branch `command` would commit on, or None (F-AC1).
+
+    Not an always-human item: no mandate or order can cover it, because work
+    under autonomy happens on a branch or worktree. The adapter refuses it only
+    while autonomy is active; the owner's own commits never pass through here.
+
+    The branch is read where the commit lands: a preceding `cd <dir>` and
+    `git -C <dir>` move it, so `cd <worktree> && git commit` is judged by the
+    worktree's branch. Safe-direction rules: a `cd` to a directory that does
+    not exist leaves the judged directory where it was; a `cd` inside `( … )`
+    ends at the closing `)`; a target whose branch cannot be read is judged
+    as the starting `cwd`. Declared limits, read from wherever the tracked
+    directory stands: `pushd`/`popd` stacks, `cd -`, `bash -c "…"`,
+    `--git-dir`/`--work-tree`, and command substitution in backticks.
+    """
+    branches = protected_branches(config)
+    here, saved = cwd, []
+    current: list[str] = []
+    for token in _tokens(command) + [";"]:
+        if not _is_separator(token):
+            current.append(token)
+            continue
+        words, _ = _split_redirects(_strip_command_position(current))
+        current = []
+        if words:
+            program = _name(words[0])
+            if program in ("cd", "pushd"):
+                dest = next((w for w in words[1:] if not w.startswith("-")), "~")
+                moved = Path(os.path.normpath(os.path.join(str(here), os.path.expanduser(dest))))
+                if moved.is_dir():
+                    here = moved
+            elif program == "git" and _git_subcommand(words)[0] == "commit":
+                target, options = here, words[1:]
+                while options and options[0].startswith("-"):
+                    if options[0] == "-C" and len(options) > 1:
+                        target = Path(os.path.normpath(os.path.join(str(target), os.path.expanduser(options[1]))))
+                    options = options[2:] if options[0] in _GIT_VALUE_OPTIONS else options[1:]
+                branch = current_branch(target) or current_branch(cwd)
+                if branch in branches:
+                    return branch
+        for char in token:  # one punctuation token can hold several, e.g. `);`
+            if char == "(":
+                saved.append(here)
+            elif char == ")" and saved:
+                here = saved.pop()
+    return None
+
+
 def classify_command(command: str, config: dict | None = None, **kwargs) -> list[str]:
     """The sorted item IDs `command` touches; `[]` when it touches none."""
     return sorted({m.item for m in command_matches(command, config, **kwargs)})
@@ -907,18 +956,26 @@ def project_root(cwd: Path | None = None) -> Path:
 
 
 def current_branch(cwd: Path | None = None) -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=cwd or Path.cwd(),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return result.stdout.strip() or None if result.returncode == 0 else None
+    """The checked-out branch, `HEAD` when detached, None outside a repo.
+
+    On an unborn branch (no commit yet) `rev-parse` fails, so the name comes
+    from `symbolic-ref` instead — an empty `main` is still `main`.
+    """
+    for args in (["rev-parse", "--abbrev-ref", "HEAD"], ["symbolic-ref", "--short", "HEAD"]):
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=cwd or Path.cwd(),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    return None
 
 
 #: Folders that hold the owner's mandate and order documents. Their presence
