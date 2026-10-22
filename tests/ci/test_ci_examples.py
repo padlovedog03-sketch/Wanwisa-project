@@ -585,6 +585,68 @@ def test_gate_3_still_reports_a_real_file_whose_content_mentions_a_worktree(
     assert "agent-x" not in result.stderr
 
 
+_PRE_COMMIT = _REPO_ROOT / ".githooks" / "pre-commit"
+
+
+def _hook_gate_3_drift(hook: str) -> list[str]:
+    """Every way the pre-commit hook's placeholder scan differs from CI gate 3
+    (pattern, roots, `grep -v` list) and from bootstrap's substitution keys
+    (the hook's template-mode `allowed=` list). Empty when they agree."""
+    gate3 = _gh_step("ไม่มีตัวยึดหลงเหลือ")["run"]
+    shape = re.search(r"grep -rn ('[^']+') (.+?) 2>/dev/null", gate3)
+    assert shape, "CI gate 3's grep line changed shape: " + gate3
+    pattern, roots = shape.groups()
+    problems = []
+    if pattern not in hook:
+        problems.append(f"the hook does not hold CI's pattern {pattern}")
+    if roots not in hook:
+        problems.append(f"the hook does not hold CI's roots {roots!r}")
+    hook_exclusions = re.findall(r"grep -v '([^']*)'", hook)
+    for missing in [e for e in _GATE_3_EXCLUSIONS if e not in hook_exclusions]:
+        problems.append(f"exclusion {missing!r} is missing from the hook")
+    for extra in [e for e in hook_exclusions if e not in _GATE_3_EXCLUSIONS]:
+        problems.append(f"the hook has exclusion {extra!r}, which CI gate 3 does not")
+    filters = hook.count("grep -v '")
+    if filters != len(_GATE_3_EXCLUSIONS):
+        problems.append(f"the hook has {filters} grep -v filters, "
+                        f"CI gate 3 has {len(_GATE_3_EXCLUSIONS)}")
+    allowed = re.search(r"^allowed='([^']*)'$", hook, re.MULTILINE)
+    hook_tokens = set(allowed.group(1).split("|")) if allowed else set()
+    if not allowed:
+        problems.append("the hook has no allowed='...' template-mode token list")
+    subs = set(re.findall(r"^\s*'<([A-Z_]+)>':", _BOOTSTRAP.read_text(encoding="utf-8"),
+                          re.MULTILINE))
+    assert subs, "bootstrap.sh's subs table changed shape"
+    for extra in sorted(hook_tokens - subs):
+        problems.append(f"the hook allows {extra}, which bootstrap does not substitute")
+    for missing in sorted(subs - hook_tokens):
+        problems.append(f"bootstrap substitutes {missing}, which the hook does not allow")
+    return problems
+
+
+def test_pre_commit_placeholder_scan_equals_ci_gate_3_and_bootstrap() -> None:
+    """AM3-AC20: one list (`_GATE_3_EXCLUSIONS`) governs CI, bootstrap and the
+    pre-commit hook; the hook's allowed tokens are exactly bootstrap's keys."""
+    assert _hook_gate_3_drift(_PRE_COMMIT.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize(
+    ("plant", "named"),
+    [
+        (lambda h: h + "\n  | grep -v 'doc/extra/'\n", "'doc/extra/'"),
+        (lambda h: h.replace("grep -v 'doc/templates/'", ""), "'doc/templates/'"),
+        (lambda h: h.replace("allowed='", "allowed='SIXTH|", 1), "SIXTH"),
+    ],
+    ids=["extra-exclusion", "missing-exclusion", "sixth-allowed-token"],
+)
+def test_the_drift_helper_names_a_planted_difference(plant, named: str) -> None:
+    hook = _PRE_COMMIT.read_text(encoding="utf-8")
+    planted = plant(hook)
+    assert planted != hook, "the plant changed nothing — the hook text moved"
+    problems = _hook_gate_3_drift(planted)
+    assert any(named in p for p in problems), problems
+
+
 # ---------------------------------------------------------------------------
 # Gate 2 — the exit gate. The CI files run `./scripts/verify-full.sh` verbatim;
 # proven here with the same stub-copy technique `tests/hooks/
