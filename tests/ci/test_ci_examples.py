@@ -189,14 +189,14 @@ def test_runs_on_and_pool_name_a_real_hosted_runner() -> None:
     assert ado["pool"]["vmImage"] == "ubuntu-latest"
 
 
-def test_the_five_gate_names_match_between_the_two_files_in_order() -> None:
+def test_the_six_gate_names_match_between_the_two_files_in_order() -> None:
     """The header comment in `azure-pipelines.yml` promises "the same gates,
     only the syntax differs" — this is what makes that promise checkable
     instead of aspirational."""
     gh_names = [s.get("name") for s in _gh_steps()[1:]]  # [0] is checkout, unnamed
     ado_names = [s.get("displayName") for s in _ado_steps()[1:]]
     assert gh_names == ado_names
-    assert len(gh_names) == 5, gh_names
+    assert len(gh_names) == 6, gh_names
 
 
 # ---------------------------------------------------------------------------
@@ -831,3 +831,82 @@ def test_every_script_path_named_in_either_ci_file_exists() -> None:
                 assert candidate.is_file(), (
                     f"{token!r} named in {source_path.name} does not exist at {candidate}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Gate 6 — the decision log only grows at the end (SPEC-delegated-autonomy-am2
+# AM2-AC2). The same script in both files, run for real against a clone whose
+# base branch moved on after the candidate forked.
+# ---------------------------------------------------------------------------
+
+_LOG_STEP = "บันทึกการตัดสินใจต่อท้ายได้อย่างเดียว"
+_DECISION_LOG = "doc/decisions/decision-log.jsonl"
+
+
+def test_gate_6_scripts_are_byte_identical() -> None:
+    gh_run = _gh_step(_LOG_STEP)["run"]
+    ado_script = _ado_step(_LOG_STEP)["script"]
+    assert gh_run == ado_script
+    assert "scripts/autonomy.py verify-log --append-only" in gh_run
+
+
+def _write_log(work: Path, lines: list[str]) -> None:
+    path = work / _DECISION_LOG
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+    _git_ci(work, "add", "-A")
+    _git_ci(work, "commit", "-q", "-m", "log")
+
+
+def _gate_6_clone(tmp_path: Path, candidate: list[str]) -> Path:
+    """main holds three log lines; the candidate forks and writes `candidate`;
+    main then gains a fourth line the candidate never saw."""
+    origin = tmp_path / "origin.git"
+    _git_ci(tmp_path, "init", "-q", "--bare", str(origin))
+    work = tmp_path / "work"
+    _git_ci(tmp_path, "clone", "-q", str(origin), str(work))
+    for k, v in (("user.name", "t"), ("user.email", "t@example.invalid")):
+        _git_ci(work, "config", k, v)
+    _git_ci(work, "symbolic-ref", "HEAD", "refs/heads/main")
+    (work / "scripts").mkdir()
+    for name in ("autonomy.py", "verify_approvals.py"):
+        shutil.copy(_REPO_ROOT / "scripts" / name, work / "scripts" / name)
+    _write_log(work, ['{"id": "a"}', '{"id": "b"}', '{"id": "c"}'])
+    _git_ci(work, "checkout", "-q", "-b", "candidate")
+    _write_log(work, candidate)
+    _git_ci(work, "checkout", "-q", "main")
+    _write_log(work, ['{"id": "a"}', '{"id": "b"}', '{"id": "c"}', '{"id": "main-only"}'])
+    _git_ci(work, "push", "-q", "origin", "main")
+    _git_ci(work, "checkout", "-q", "--detach", "candidate")
+    _git_ci(work, "update-ref", "-d", "refs/remotes/origin/main")  # the step must fetch it
+    return work
+
+
+def _run_gate_6(tmp_path: Path, work: Path, which: str) -> subprocess.CompletedProcess[str]:
+    body = _gh_step(_LOG_STEP)["run"] if which == "github" else _ado_step(_LOG_STEP)["script"]
+    env = {k: v for k, v in os.environ.items() if k not in ("GITHUB_BASE_REF", "SYSTEM_PULLREQUEST_TARGETBRANCH")}
+    env["HOME"] = str(tmp_path / "home")
+    env["APPROVAL_LOG"] = str(tmp_path / "registry.jsonl")
+    if which == "github":
+        env["GITHUB_BASE_REF"] = "main"
+    elif which == "azure-pr":
+        env["SYSTEM_PULLREQUEST_TARGETBRANCH"] = "refs/heads/main"
+    script = tmp_path / "gate6.sh"
+    script.write_text(body, encoding="utf-8")
+    return subprocess.run(["bash", str(script)], cwd=work, capture_output=True, text=True,
+                          timeout=60, check=False, env=env)
+
+
+@pytest.mark.parametrize("which", ["github", "azure-pr", "azure-push"])
+def test_gate_6_is_green_on_an_append_although_the_base_moved_on(tmp_path: Path, which: str) -> None:
+    work = _gate_6_clone(tmp_path, ['{"id": "a"}', '{"id": "b"}', '{"id": "c"}', '{"id": "d"}'])
+    result = _run_gate_6(tmp_path, work, which)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("which", ["github", "azure-pr", "azure-push"])
+def test_gate_6_is_red_naming_the_line_when_an_earlier_line_changed(tmp_path: Path, which: str) -> None:
+    work = _gate_6_clone(tmp_path, ['{"id": "a"}', '{"id": "B"}', '{"id": "c"}', '{"id": "d"}'])
+    result = _run_gate_6(tmp_path, work, which)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "line 2" in result.stderr, result.stderr

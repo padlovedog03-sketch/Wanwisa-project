@@ -497,3 +497,54 @@ def test_a_malformed_project_file_keeps_the_framework_rules_on(
     assert "always-human item AH3" in blocked.stderr
     assert "cannot remove framework item AH3" in blocked.stderr
     assert _run_guard("git status", cwd=repo, registry=registry).returncode == _EXIT_ALLOW
+
+
+# --------------------------------------------------------------------------- AM2-AC8 (log, verify-log)
+# SPEC-delegated-autonomy-am2-task-orders-scope AM2-AC8: under a live order the
+# guard lets the agent run each row-5 subcommand as it ships. Increment 2 ships
+# `log` and `verify-log`; an undefined subcommand stays refused as AH5.
+
+_SHIPPED_SUBCOMMANDS = [
+    "python3 scripts/autonomy.py log --entry '{\"id\": \"d-1\", \"why\": \"a; b > c\"}'",
+    "python3 scripts/autonomy.py verify-log --append-only main",
+    'python3 -I scripts/autonomy.py verify-log --append-only "$(git merge-base origin/main HEAD)"',
+]
+
+
+@pytest.fixture
+def ordered_project(tmp_path: Path) -> tuple[Path, Path]:
+    """A project on a working branch under a live, unexpired, unrevoked order."""
+    repo, registry = _project_on(tmp_path, "feature/x", entry=_ORDER_ENTRY)
+    assert _run_guard("git push origin main", cwd=repo, registry=registry).returncode == _EXIT_BLOCK
+    return repo, registry
+
+
+@pytest.mark.parametrize("command", _SHIPPED_SUBCOMMANDS)
+def test_the_shipped_log_subcommands_are_allowed_under_an_order(
+    command: str, ordered_project: tuple[Path, Path]
+) -> None:
+    repo, registry = ordered_project
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+@pytest.mark.parametrize("command", _SHIPPED_SUBCOMMANDS)
+def test_the_shipped_log_subcommands_are_allowed_without_autonomy(
+    command: str, plain_project: tuple[Path, Path]
+) -> None:
+    repo, registry = plain_project
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["python3 scripts/autonomy.py grant tier-2-feature", "python3 scripts/autonomy.py close-order k"],
+)
+def test_a_subcommand_not_yet_shipped_stays_refused_under_an_order(
+    command: str, ordered_project: tuple[Path, Path]
+) -> None:
+    repo, registry = ordered_project
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_BLOCK
+    assert "always-human item AH5" in result.stderr
