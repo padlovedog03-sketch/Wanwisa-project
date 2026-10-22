@@ -4,16 +4,69 @@ Status: In Review
 Owner: reviewer
 Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md
 Author-run: ab74ef54c3710742d
-Reviewer-run: ab1fa0c0beac00430
+Reviewer-run: a937e09bb10826b24
 Date: 2026-10-22
 
-## Verdict: FAIL
+## Verdict: PASS
 
-Round 2 (rework after QA FAIL): both QA defects are closed, but the rework lost coverage in the refused half of F-AC1. Round 1 refused two commits that land on `main` by plain mistake, and round 2 allows them: `cd <typo>; git commit` and `(cd <worktree> && …); git commit`.
+Round 3 (delta review of the round-2 rework): both round-2 regressions are closed, both QA defects stay closed, and in the round-2 probe set the only case that round 1 refused and round 3 allows is `pushd WT; popd; git commit`. That spelling is a declared limit, so it is Parked (R1), not a defect.
 
-## Round 2 — increment 1 (F1) rework
+## Round 3 — increment 1 (F1) rework, delta
 
 ### Read from
+
+- Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md (increment plan row 1, F-AC1 `git commit` half). The round-2 section below has the two defects this round has to close.
+- Change: the uncommitted files in worktree `.claude/worktrees/agent-ab74ef54c3710742d`. I ran `diff -q` on each file against this branch's HEAD (3d5fe2c). `scripts/autonomy.py`, `.claude/hooks/guard_bash.py` and `tests/hooks/test_guard_always_human.py` differ. `tests/framework/test_autonomy_items.py` is identical. Against the round-2 code (the round-2 reviewer's scratch copy `rvf2-ab1fa/r2`), `guard_bash.py` is identical, and only `scripts/autonomy.py` and the test file changed.
+- Scratch copies under the reviewer scratchpad `rvf3-a937e/`:
+  - `base` = `git archive HEAD`.
+  - `r1` = the round-1 code, copied from `rvf2-ab1fa/r1`.
+  - `r2` = the round-2 code with the round-3 test file, for red-first.
+  - `r3` = base plus the author's 3 files.
+- The author's worktree was only read, never written. I did not read the author's conversation. The brief's summary of the change was checked against the diff.
+
+### What changed (r2 → r3, `scripts/autonomy.py` `protected_commit` only)
+
+- The walk now runs over the raw tokens instead of `segments()`. It applies `_strip_command_position` and `_split_redirects` to each command, the same steps `segments()` takes.
+- A `cd`/`pushd` moves `here` only when `moved.is_dir()`.
+- A `(` saves `here` and a `)` restores it. Each character is checked, so a combined token such as `);` also counts.
+- The branch is now `current_branch(target) or current_branch(cwd)`, so a target whose branch cannot be read is judged as the starting cwd.
+- The docstring now names the safe-direction rules. It also lists these declared limits: `pushd`/`popd` stacks, `cd -`, `bash -c`, `--git-dir`/`--work-tree` and backticks.
+
+### Criteria Review
+
+| # | Criterion | Verdict | Evidence (command run in this review) |
+|---|---|---|---|
+| (a) Round-2 Defect 1 | A `cd` to a missing directory must not move the judged directory | PASS (closed) | `python3 rvf3-a937e/probe.py`: the round-2 probe set, re-run against r1, r2 and r3 guards in real repos, with a live order and `HOME` and `APPROVAL_LOG` in a temp dir. Hook cwd on `main`, r1/r2/r3 rc: `cd /nonexistent-rvf2; git commit -m x` 2/0/**2** F-AC1. Variants: `cd /nonexistent-rvf2 && git commit` 2/0/2 · `cd nosuchsub; git commit` 2/0/2. |
+| (a) Round-2 Defect 2 | A `cd` inside `( … )` must not leak past the `)` | PASS (closed) | Same probe: `(cd WT && git commit -m x); git commit -m y` 2/0/**2** F-AC1. Variants: `(cd WT; git commit); git commit` 2/0/2 · `(cd WT && git commit) && git commit` 2/0/2 · `((cd WT); git commit)` 2/0/2. The scope does not overshoot: `(cd WT && git commit)` alone 2/0/0 (allowed, the commit lands in the worktree) · cwd = worktree, `(cd MAIN && git commit)` 0/2/2 · cwd = worktree, `(cd MAIN); git commit` 0/2/**0** (correct: that commit runs in the worktree, and r2 refused it wrongly). |
+| (b) QA Defect 1 stays closed | Hook cwd on `main`, commit into a `wip/x` worktree is allowed | PASS | Same probe, r3 = 0 on every row: `cd WT && commit` · `cd WT; commit` · `git -C WT commit` · `cd ../a-wt && commit` · `pushd WT && commit` · `cd -P WT` · `cd -- WT` · `cd 'WT'` · `git -c user.name=t -C WT commit` · `sudo git -C WT commit`. |
+| (b) QA Defect 2 stays closed | Unborn `main` + live autonomy → `git commit` refused | PASS | Same probe, unborn `main`, r3: `git commit` 2 F-AC1 · `git add . && git commit` 2 F-AC1 · `git merge feature/x` 2 AH3 · `git rebase feature/x` 2 AH3 · `git status` 0. |
+| (c) Round-1 refusals in the round-2 probe set | No case that round 1 refused is allowed now, except through a declared limit | PASS | Same probe, 59 rows, `unexpected=0`. Every r1 = 2 row is 2 on r3 (plain commit · `cd sub` · `git -C .` · `git -C sub` · `git -C WT/../a` · `cd ../a-wt && git -C ../a` · `cd WT && commit; cd ../a && commit` · `add && commit` · `merge` AH3 · `--work-tree=WT` · `--dry-run` · both regression rows), except for two groups. The first is the rows meant to be allowed (commit into the worktree, QA Defect 1). The second is `pushd WT; popd; git commit -m x` 2/0/0, which uses a declared spelling (Parked R1). `cd WT && cd - && git commit` is now 2/0/**2**: `cd -` resolves to `$HOME`, which is not a repo in the probe, so the fallback judges the commit as cwd (`main`). The fix is incidental, and it still depends on `$HOME` (R2 stays parked). |
+| Reverse direction and A-AC8 | Worktree → `main` refused; no live autonomy → nothing changes | PASS | Same probe. Cwd = worktree: `cd MAIN && commit` · `cd MAIN; commit` · `git -C MAIN commit` · `cd ../a && commit` · `pushd MAIN && commit` → r3 2 F-AC1. Plain `git commit` → 0. Empty registry or never opted in (9 rows): r1 = r2 = r3 = 0. Detached HEAD and outside a repo: 0. `echo 'cd WT && git commit'` 0. |
+| Red-first | New tests red against the round-2 code | PASS | `python3 -m pytest tests/hooks/test_guard_always_human.py tests/framework/test_autonomy_items.py -q -p no:cacheprovider` on `r2` (round-2 code plus the round-3 test file) → `7 failed, 184 passed in 14.24s`. The 7 are the 6 `test_a_commit_that_does_not_land_in_the_worktree_is_judged_on_main[*]` (3 missing-dir spellings, including `git -C /nonexistent-f-ac1`, and 3 subshell spellings) and `test_a_failed_cd_does_not_move_a_relative_git_dash_c`. The other new test, `test_a_commit_inside_a_subshell_cd_to_the_worktree_is_allowed`, is green on r2. That is correct: it is an allow pin that keeps the scope fix from overshooting. |
+| Brief's verify command | — | PASS | Same command on `r3` → `191 passed in 14.87s`. |
+| Exit gate | `scripts/verify-full.sh` | PASS | `bash rvf3-a937e/vfull.sh` runs on `r3`, made a git repo for the run → hooks `1481 passed`, ci-examples `36 passed`, scar-forge OK, coordinator `174 passed`, framework OK (memory 0 problems), `verify-full exit=0`. Lint, format and tests are the template's `TODO` placeholders ("this step verified NOTHING"), the same as on HEAD. |
+
+### Defects
+
+None.
+
+### Observations (no action required)
+
+- **The fallback refuses some commits that would never land on `main`.** `current_branch(target) or current_branch(cwd)` judges a commit as `main` when its target is not a repo, for example `cd /tmp && git commit` from a `main` checkout. Git would fail there anyway, so nothing lands on `main`. This is the safe direction, and the docstring states it ("a target whose branch cannot be read is judged as the starting `cwd`").
+- **The walk repeats `segments()` instead of calling it.** The new loop duplicates `segments()`'s splitting so that it can see the `( )` tokens. `segments()` is unchanged, so the two can drift apart if one is edited later. This is a code-quality note, not a defect.
+
+### Parked (for the coordinator)
+
+- R1 (`pushd`/`popd` stacks) stays parked. It is declared in the docstring, and in the round-2 probe set it is the only round-1 refusal that is still allowed.
+- R2 (`cd -`) is parked, and the probe now refuses it only by accident (see (c)). R3 (status read at the hook cwd) is unchanged. Round-1 P1, P3 and P4 are unchanged.
+
+## Review history
+
+### Round 2 (reviewer run ab1fa0c0beac00430) — result FAIL
+
+Both QA defects were closed, but the rework lost coverage in the refused half of F-AC1. Round 1 refused two commits that land on `main` by plain mistake, and round 2 allowed them: `cd` to a missing directory followed by `; git commit`, and `( cd` into the worktree `… ); git commit`.
+
+#### Read from
 
 - Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md, increment plan row 1 (F-AC1 `git commit` half, `guard_bash.py` only). The F-AC1 and A-AC8 rows are in doc/specs/SPEC-delegated-autonomy.md. QA's two defects are in doc/qa/QA-delegated-autonomy-am2-task-orders-scope.md (commit 17ce083).
 - Change: the uncommitted rework in worktree `.claude/worktrees/agent-ab74ef54c3710742d`. I ran `diff -rq` of that tree against this branch's HEAD (17ce083), excluding `.git` and caches. Exactly 3 files differ: `scripts/autonomy.py`, `.claude/hooks/guard_bash.py` and `tests/hooks/test_guard_always_human.py`. There is also the untracked `.verify/` run folder, plus the two doc/qa files that HEAD has and the older base does not. `tests/framework/test_autonomy_items.py` is identical to HEAD.
@@ -26,13 +79,13 @@ Round 2 (rework after QA FAIL): both QA defects are closed, but the rework lost 
 - The author's worktree was only read, never written.
 - Not read: the author's conversation. The brief's summary of the rework was checked against the diff, not relayed.
 
-### What changed
+#### What changed
 
 - `protected_commit(command, config, cwd)` (`scripts/autonomy.py:817`) now walks the segments. A `cd`/`pushd` moves a running `here`, and `git -C <dir>` moves the target. The branch is read at the target with `current_branch(target)` (line 847).
 - `current_branch` (line ~945) tries `git rev-parse --abbrev-ref HEAD` first. When that fails or prints nothing, it falls back to `git symbolic-ref --short HEAD`.
 - `guard_bash.py` `_apply_core` passes `cwd` instead of the hook-cwd branch.
 
-### Criteria Review
+#### Criteria Review
 
 | # | Criterion | Verdict | Evidence (command run in this review) |
 |---|---|---|---|
@@ -46,14 +99,14 @@ Round 2 (rework after QA FAIL): both QA defects are closed, but the rework lost 
 | Brief's verify command | — | PASS | Same command on `r2` → `183 passed in 13.36s`. |
 | Exit gate | `scripts/verify-full.sh` | PASS (green; does not cover the 2 regressions) | Run on `r2` (made a git repo for the run) → hooks `1473 passed`, ci-examples `36 passed`, scar-forge OK, coordinator `174 passed`, framework OK, `verify-full exit=0`. The lint, format and tests steps are the template's `TODO` placeholders ("this step verified NOTHING"), the same as on HEAD. A green suite is not the verdict here: no test covers either regression row. |
 
-### Defects
+#### Defects
 
 | Severity | Description | Where | Back to |
 |---|---|---|---|
 | Medium | **A `cd` that fails moves the guard but not the shell.** If the `cd` destination does not exist (a typo), the shell stays in the `main` checkout. With `;`, the commit runs there. `protected_commit` moves `here` anyway, and then `current_branch(<nonexistent dir>)` hits `OSError` and returns `None`. `None` counts as "not protected", so the guard fails open. Repro: hook cwd on `main`, live order, `cd /nonexistent-rvf2; git commit -m x` → round 1 rc 2 F-AC1, round 2 **rc 0**. `rvf2-ab1fa/mech.py` confirms `current_branch(Path('/nonexistent-rvf2'))` → `None`. Fix direction: move `here` only when the destination is an existing directory (the shell's own behaviour). Also, do not let an unreadable target clear a commit that the starting cwd would refuse. | scripts/autonomy.py:836-838 (cd), :847 (`current_branch(target)`) | ai-engineer (`regression`) |
 | Medium | **A subshell's `cd` leaks past its closing parenthesis.** `segments()` splits at `( )` but keeps no scope, so after `(cd <wt> && …)` the guard still thinks it is in the worktree. Repro: hook cwd on `main`, live order, `(cd WT && git commit -m x); git commit -m y`. The second commit lands on `main`: round 1 rc 2 F-AC1, round 2 **rc 0**. `mech.py`: `segments('(cd /x && git commit -m x); git commit -m y')` → `[['cd','/x'], ['git','commit',…], ['git','commit',…]]`, so the parentheses are gone. `(cd dir && cmd)` is a common agent idiom, so this is reachable by plain mistake. The docstring's declared limits name `bash -c`, `--git-dir` and `pushd` stacks, and not subshells. Fix direction: one simple safe option is to judge each `git commit` against both the starting cwd and the tracked `here`, and refuse if either is protected. Any new test must be red on the current r2. | scripts/autonomy.py:830-848 (`protected_commit` walk) | ai-engineer (`regression`) |
 
-### Hostile inputs tried (round 2; r1 → r2 rc, hook cwd on `main`, live order, unless stated)
+#### Hostile inputs tried (round 2; r1 → r2 rc, hook cwd on `main`, live order, unless stated)
 
 - Correct after the rework: every row in the Criteria table above. `echo 'cd WT && git commit -m x'` 0→0 (a mention is not a run).
 - Declared limits (docstring: `bash -c`, `--git-dir`, `pushd` stacks):
@@ -63,14 +116,12 @@ Round 2 (rework after QA FAIL): both QA defects are closed, but the rework lost 
 - Hook cwd outside any repo, `cd MAIN && git commit` → 0→0. `status` is read at the hook cwd's project root, not the target's. This is not new in round 2. Parked R3.
 - `git commit --dry-run` 2→2. Unchanged (QA Q3).
 
-### Parked (outside the threat model or declared; for the coordinator)
+#### Parked (outside the threat model or declared; for the coordinator)
 
 - **R1 — `pushd`/`popd` stacks.** `popd` is not tracked, so `pushd WT; popd; git commit` is judged at WT. The docstring declares this limit. It is a regression from round 1 (2→0), but only through a declared spelling.
 - **R2 — `cd -`.** It resolves to `$HOME` instead of the previous directory. It is rare in agent commands. If the Defect 2 fix judges against the starting cwd as well, it closes this too.
 - **R3 — status is read where the hook runs, not where the commit lands.** A session whose cwd is outside the opted-in project, running `cd <project on main> && git commit`, is allowed. The same was true in round 1, so this is the same family as QA Q1's evasion direction.
 - Round-1 P1 (cherry-pick/revert/commit-tree/alias/`bash -c`), P3 and P4 are unchanged. P2 is closed by the new `absence-main` rows.
-
-## Review history
 
 ### Round 1 (reviewer run a0705137a137aecbc) — result PASS, later failed by QA at 17ce083
 
@@ -126,3 +177,4 @@ None.
 
 - **2026-10-22 — drafted (increment 1, F1).** Reviewer run a0705137a137aecbc, from the spec, the author's uncommitted 3-file diff in worktree agent-ab74ef54c3710742d, and commands run on scratch copies. PASS.
 - **2026-10-22 — round 2 (rework after QA FAIL at 17ce083).** Reviewer run ab1fa0c0beac00430, from the spec, the QA report, the author's uncommitted 3-file rework in worktree agent-ab74ef54c3710742d, and commands run on scratch copies (`rvf2-ab1fa/`). FAIL: the QA defects are closed, but 2 regressions appeared in F-AC1's refused half.
+- **2026-10-22 — round 3 (delta after round-2 FAIL).** Reviewer run a937e09bb10826b24, from the spec, the round-2 section, the author's uncommitted 3-file rework in worktree agent-ab74ef54c3710742d, and commands run on scratch copies (`rvf3-a937e/`). PASS: both regressions are closed and both QA defects stay closed. In the round-2 probe set, the only round-1 refusal still allowed is the declared `pushd`/`popd` limit.
