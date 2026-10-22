@@ -82,7 +82,7 @@ _FILES_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Files"), re.MULTILINE
 # JC-AM1: an empty `Files:` may be followed by a list of paths. A list item, and
 # a label (`Verify with:`, `**Criteria:**`) that ends the list rather than naming a path.
 _LIST_ITEM_PATTERN = re.compile(r"^[ \t]*(?:[-*]|\d+\.)(?:[ \t]+(.*))?$")
-_LABEL_PATTERN = re.compile(r"^(?:\*\*)?[A-Za-z][A-Za-z ]*(?:\*\*)?[ \t]*:")
+_LABEL_PATTERN = re.compile(r"^(?:\*\*)?[A-Za-z][A-Za-z0-9_ -]*(?:\*\*)?[ \t]*:")
 _SUBJECT_LINE_PATTERN = re.compile(_FIELD_LINE.format(field="Slice|Spec"), re.MULTILINE)
 # `Verdict:` as a plain line, a heading or bold — never inside another line,
 # so a decorated `Status: Done (Verdict: PASS)` is not read as one.

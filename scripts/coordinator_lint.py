@@ -42,6 +42,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -287,11 +288,45 @@ def _brief_field_value(line: str, field: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+#: JC-AM4: rule 6 reads `Files:` with the spawn guard's rule (JC-AM1, JC-AM3).
+#: Own copies of the guard's patterns, never an import of the hook (AM2-ADR-2);
+#: tests/hooks/test_guard_agent_spawn.py fails if the two copies drift.
+_FILES_FIELD_RE = re.compile(r"^[ \t]*(?:(?:[-*]|\d+\.)[ \t]+)?(?:\*\*)?Files(?:\*\*)?[ \t]*:(?:\*\*)?(.*)$")
+_LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*]|\d+\.)(?:[ \t]+(.*))?$")
+_LABEL_RE = re.compile(r"^(?:\*\*)?[A-Za-z][A-Za-z0-9_ -]*(?:\*\*)?[ \t]*:")
+
+
+def _files_filled(lines: list[str]) -> bool:
+    """A `Files:` line with any inline value (a `<...>` one too, AM2-ADR-3), or
+    an empty one with a filled list directly under it: blank lines may precede
+    the first item; the list ends at a non-item, a blank line or a labelled item."""
+    lines = [unicodedata.normalize("NFKC", line) for line in lines]
+    for i, line in enumerate(lines):
+        match = _FILES_FIELD_RE.match(line)
+        if not match:
+            continue
+        if match.group(1).replace("*", "").strip():
+            return True
+        j = i + 1
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        while j < len(lines):
+            item = _LIST_ITEM_RE.match(lines[j])
+            if not item or _LABEL_RE.match(item.group(1) or ""):
+                break
+            value = (item.group(1) or "").replace("*", "").strip()
+            if value and not value.startswith("<"):
+                return True
+            j += 1
+    return False
+
+
 def check_briefs(text: str) -> list[Violation]:
     """Rule 6: a brief block — from a `Slice:` line to the next one or the
     end of the text — must carry a filled `Files:`, `Criteria:` and
     `Verify with:` line. Lines may be indented or bulleted. Checked line by
-    line, so an empty field never borrows the line below it."""
+    line, so an empty field never borrows the line below it — except that an
+    empty `Files:` may be filled by a list under it (`_files_filled`)."""
     lines = text.splitlines()
     starts = [i for i, line in enumerate(lines) if _brief_field_value(line, "Slice:") is not None]
     violations: list[Violation] = []
@@ -299,7 +334,11 @@ def check_briefs(text: str) -> list[Violation]:
         end = starts[n + 1] if n + 1 < len(starts) else len(lines)
         block = lines[start:end]
         for field, hint in _BRIEF_FIELDS:
-            if not any(_brief_field_value(line, field) for line in block):
+            if field == "Files:":
+                filled = _files_filled(block)
+            else:
+                filled = any(_brief_field_value(line, field) for line in block)
+            if not filled:
                 violations.append(
                     Violation(
                         rule="6",

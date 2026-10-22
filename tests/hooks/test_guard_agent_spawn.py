@@ -20,8 +20,10 @@ Run: `python3 -m pytest tests/hooks/ -q`   (no project dependencies required)
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import unicodedata
 import subprocess
 import sys
 from pathlib import Path
@@ -823,11 +825,25 @@ def test_an_unfilled_tier_line_is_refused_naming_tier_only(prompt: str) -> None:
         "Tier: 1 — x\nFiles: <paths>\n- a.md",
         "- Tier: 2 — x\n- Files:\n- Verify with: pytest",
         "Tier: 1 — x\nFiles:\n- Verify with: x\n- a.md",
+        # JC-AM3: a label may hold digits, `_` and `-`; it still ends the list.
+        "Tier: 0 — x\nFiles:\n- NO_SPEC_BUGFIX: repro steps here",
+        "Tier: 1 — x\nFiles:\n- Verify-with: x",
+        "Tier: 1 — x\nFiles:\n- Verify_with: x",
+        "Tier: 1 — x\nFiles:\n- **NO_SPEC_BUGFIX:** x",
+        "Tier: 1 — x\nFiles:\n- Step2: x",
+        "Tier: 1 — x\nFiles:\n- Verify-with：x",
+        "Tier: 1 — x\nFiles:\n- Verify-with: x\n- a.md",
+        "- Tier: 2 — x\n- Files:\n- Verify-with: pytest",
+        # JC-AM3 / AM2-ADR-1: known false refusals, by design.
+        "Tier: 1 — x\nFiles:\n- Makefile: build rules",
+        "Tier: 1 — x\nFiles:\n- docker-compose: x",
     ],
     ids=["no-files", "files-empty", "files-placeholder", "files-last-line-newline", "paragraph-before-list",
          "list-placeholder-only", "list-empty-item", "list-bare-dash", "blank-lines-only", "indented-path-no-marker",
          "bold-heading-not-an-item", "inline-placeholder-then-list", "bulleted-header-files-forgotten",
-         "label-item-ends-the-list"],
+         "label-item-ends-the-list", "am3-no-spec-bugfix-label", "am3-hyphen-label", "am3-underscore-label",
+         "am3-bold-underscore-label", "am3-digit-label", "am3-full-width-colon-label", "am3-label-before-path",
+         "am3-bulleted-header-hyphen-label", "am3-makefile-false-refusal", "am3-docker-compose-false-refusal"],
 )
 def test_an_unfilled_files_line_is_refused_naming_files_only(prompt: str) -> None:
     result = _run_brief("reviewer", prompt)
@@ -851,14 +867,37 @@ def test_an_unfilled_files_line_is_refused_naming_files_only(prompt: str) -> Non
         "Tier: 2 — x\r\nFiles:\r\n- a.md\r\n",
         "Tier: 2 — x\nFiles:\n- <paths>\n- a.md",
         "Tier: 2 — x\nFiles:\n- doc/a.md — new: x",
+        # JC-AM3: path items the wider label grammar must not swallow.
+        "Tier: 2 — x\nFiles:\n- ./Makefile: build rules",
+        "Tier: 2 — x\nFiles:\n- `Makefile`: build rules",
+        "Tier: 2 — x\nFiles:\n- Makefile — build rules",
+        "Tier: 2 — x\nFiles:\n- my-file.txt: x",
+        "Tier: 2 — x\nFiles:\n- a.md\n- NO_SPEC_BUGFIX: repro",
     ],
     ids=["full-width-colon", "bold-and-bulleted", "numbered-and-bold", "list-dash", "list-star", "list-numbered",
          "bold-files-list", "bulleted-files-indented-list", "blank-line-then-list", "list-crlf",
-         "placeholder-then-filled-item", "path-item-with-colon"],
+         "placeholder-then-filled-item", "path-item-with-colon", "am3-dot-slash-makefile", "am3-backticked-makefile",
+         "am3-makefile-dash-note", "am3-dotted-name-before-colon", "am3-path-before-label"],
 )
 def test_a_filled_brief_header_in_any_field_form_is_accepted(prompt: str) -> None:
     result = _run_brief("pm", prompt)
     assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("subagent_type", "prompt"),
+    [
+        ("ai-engineer", "Tier: 0 — x\nFiles:\n- NO_SPEC_BUGFIX: repro steps here"),
+        ("pm", "Tier: 1 — x\nFiles:\n- Verify-with: x"),
+    ],
+    ids=["ai-engineer-no-spec-bugfix-label", "pm-hyphen-label"],
+)
+def test_a_label_only_files_list_is_refused_for_engineer_and_pm(subagent_type: str, prompt: str) -> None:
+    """JC-AM3: the override line under an empty `Files:` is a label, not a path —
+    rule A5 alone does not stop this brief, so the `Files:` check must."""
+    result = _run_brief(subagent_type, prompt)
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert f"{_BRIEF_MESSAGE} Files:" in result.stderr
 
 
 def test_the_brief_check_runs_before_the_spec_gate_and_the_review_gate() -> None:
@@ -875,3 +914,81 @@ def test_investigation_and_unknown_types_are_never_checked_for_brief_lines(subag
 
 def test_a_non_agent_tool_is_never_checked_for_brief_lines() -> None:
     assert _run_brief("reviewer", "", tool_name="Bash").returncode == _EXIT_ALLOW
+
+
+# ---------------------------------------------------------------------------
+# JC-AM5 (AM2-ADR-2): the guard and coordinator_lint rule 6 hold two copies of
+# one `Files:` rule. One case table runs through both; any drift is red.
+# The adapter test loads the core script, never the reverse (AGENTS.md §10).
+# ---------------------------------------------------------------------------
+
+
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # a @dataclass looks its module up while it is built
+    spec.loader.exec_module(module)
+    return module
+
+
+_GUARD = _load("_guard_agent_spawn_parity", _SPAWN_GATE)
+_LINT = _load("_coordinator_lint_parity", _REPO_ROOT / "scripts" / "coordinator_lint.py")
+
+# Inline `<...>` values: the guard refuses them, rule 6 accepts them so the
+# brief template stays clean (AM2-ADR-3). The only declared disagreements.
+_EXPECTED_DIFF = {"Files: <paths>", "Files: <paths>\n- a.md"}
+
+_PARITY_CASES = [
+    # filled
+    "Files: a.py",
+    "**Files:** a.py",
+    "- Files: a.py",
+    "  1. **Files**: a.py",
+    "Files：a.py",
+    "Files:\n- a.md\n- b.md",
+    "Files:\n* a.md",
+    "Files:\n1. a.md",
+    "**Files:**\n- a.md",
+    "- Files:\n  - a.md",
+    "Files:\n\n- a.md",
+    "Files:\n- <paths>\n- a.md",
+    "Files:\n- doc/a.md — new: x",
+    "Files:\n- ./Makefile: build rules",
+    "Files:\n- `Makefile`: build rules",
+    "Files:\n- Makefile — build rules",
+    "Files:\n- my-file.txt: x",
+    "Files:\n- a.md\n- NO_SPEC_BUGFIX: repro",
+    # unfilled
+    "",
+    "Files:",
+    "Files:\nSome paragraph.\n- a.md",
+    "Files:\n- <paths>",
+    "Files:\n- ",
+    "Files:\n  a.md",
+    "Files:\n**Task**",
+    "Files:\n- Verify with: x\n- a.md",
+    "Files:\nCriteria: AC1",
+    "- Files:\n- Verify-with: pytest",
+    "Files:\n- NO_SPEC_BUGFIX: repro steps here",
+    "Files:\n- Verify-with: x",
+    "Files:\n- Verify_with: x",
+    "Files:\n- **NO_SPEC_BUGFIX:** x",
+    "Files:\n- Step2: x",
+    "Files:\n- Verify-with：x",
+    "Files:\n- Verify-with: x\n- a.md",
+    "Files:\n- Makefile: build rules",
+    "Files:\n- docker-compose: x",
+    # declared disagreements
+    *sorted(_EXPECTED_DIFF),
+]
+
+
+@pytest.mark.parametrize("case", _PARITY_CASES)
+def test_the_guard_and_rule_6_read_files_the_same_way(case: str) -> None:
+    guard = _GUARD._files_filled(unicodedata.normalize("NFKC", case).splitlines())
+    lint = _LINT._files_filled(case.splitlines())
+
+    if case in _EXPECTED_DIFF:
+        assert (guard, lint) == (False, True), case
+    else:
+        assert guard == lint, case
