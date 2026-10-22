@@ -412,6 +412,51 @@ def test_an_empty_indented_field_does_not_borrow_the_next_line() -> None:
     assert [("'Files:'" in v.reason) for v in violations] == [True], violations
 
 
+_TAIL = "Criteria:     AC1\nVerify with:  pytest\n"
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        "Files:\n- a.py\n- b.py\n",
+        "Files:\n\n- a.py\n",
+        "**Files:** a.py\n",
+        "**Files:**\n- a.py\n",
+        "- Files:\n  - a.py\n",
+        "Files：a.py\n",
+        "Files: <exact paths>\n",
+    ],
+    ids=["list", "blank-then-list", "bold-inline", "bold-then-list", "bulleted-indented-list", "full-width-colon",
+         "inline-placeholder"],
+)
+def test_a_files_field_the_guard_accepts_is_clean_in_rule_6(files: str) -> None:
+    """JC-AM4: rule 6 reads the am1 list form and the bold form like the guard."""
+    assert _rule6("Slice: s\n" + files + _TAIL + "\n" + _SELF_REPORT) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Slice: s\nFiles:\n- <paths>\n" + _TAIL,
+        "Slice: s\nFiles:\n- NO_SPEC_BUGFIX: repro\n" + _TAIL,
+        "Slice: s\nFiles:\n- Verify-with: x\n" + _TAIL,
+        "Slice: s\nFiles:\n" + _TAIL,
+        "- Slice: s\n- Files:\n- Criteria: AC1\n- Verify with: pytest\n",
+        "Slice: s\nFiles:\nSome paragraph.\n- a.py\n" + _TAIL,
+        "Slice: s\n" + _TAIL + "Files:\nSlice: t\n- a.py\nFiles: b.py\n" + _TAIL,
+    ],
+    ids=["placeholder-item", "no-spec-bugfix-label", "hyphen-label", "next-field-not-an-item",
+         "bulleted-empty-files", "paragraph-before-list", "list-in-next-slice"],
+)
+def test_a_files_field_with_no_filled_list_is_one_rule_6_violation(text: str) -> None:
+    """JC-AM4 hostile: each names only `Files:`, once."""
+    violations = _rule6(text + "\n" + _SELF_REPORT)
+
+    assert [v.reason for v in violations] == [
+        "brief has no 'Files:' line — name the exact files to touch or read"
+    ], violations
+
+
 def test_rework_is_optional_in_a_brief() -> None:
     assert _rule6(_FULL_BRIEF + "\n" + _SELF_REPORT) == []
     assert _rule6(_FULL_BRIEF + "REWORK:       doc/qa/QA-x.md\n\n" + _SELF_REPORT) == []
