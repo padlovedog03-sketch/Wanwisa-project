@@ -3,24 +3,88 @@
 Status: In Review
 Owner: reviewer
 Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md
-Author-run: a652078d3d8838f6b
-Reviewer-run: a10b15a401c97dfa2
+Author-run: a302faca16121a04e
+Reviewer-run: a6edbcdf772e6fa2d
 Date: 2026-10-22
 
 ## Verdict: PASS
 
-Increment 2 (Log) meets AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 for `log`/`verify-log` and A-AC8. The new tests are red on HEAD (139 failed) and green with the change (312 passed). The exit gate is green on its configured steps. There is one stray whitespace edit to fix before commit (see Defects, Low, not blocking).
+Increment 3 (Registry and owner commands) meets A-AC10, A-AC9, J-AC1, J-AC2, AM2-AC3 (b), AM2-AC7 and A-AC7's registry half, and A-AC6 (c) and A-AC8 still hold. `approve.sh <slug>` behaves as before: no existing test line changed, and every existing test is green. The new tests are red on HEAD and green with the change, and the exit gate is green. Two Low, non-blocking defects are listed. The author's `--allow` reading is a spec ambiguity, recorded for the owner.
 
-## Increment 2 — Log
+## Increment 3 — Registry and owner commands
 
 ### Read from
+
+- Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md (increment plan row 3, AM2-AC3 (b), AM2-AC5 (d)'s byte rule, AM2-AC7, the files table) and doc/specs/SPEC-delegated-autonomy.md (A-AC6 (c), A-AC7, A-AC8, A-AC9, A-AC10, J-AC1, J-AC2 wording). I also read doc/architecture/DESIGN-delegated-autonomy.md §J and PRD R41 to check the `--allow` assumption.
+- Change: the author's uncommitted files in worktree `.claude/worktrees/agent-a302faca16121a04e`. Its branch `worktree-agent-a302faca16121a04e` resolves to be34406, which is the same as this branch's HEAD. `diff -rq` over the two trees (excluding `.git`) shows exactly 11 files, which matches the brief, plus a `.verify/` run artefact:
+  - Changed: `scripts/approve.py`, `scripts/autonomy.py`, `scripts/verify_approvals.py`, `tests/framework/test_commit_msg_owner_trailer.py`, `tests/hooks/test_approve_script.py`, `tests/hooks/test_guard_always_human.py`, `tests/hooks/test_verify_approvals.py`.
+  - New: `scripts/delegate.sh`, `scripts/revoke.sh`, `doc/templates/order.md`, `tests/framework/test_delegate.py`.
+- Scratch copies, in the reviewer scratchpad, built from `git archive HEAD`. The author's worktree was only read, never written.
+  - `base/` is HEAD.
+  - `new/` is HEAD plus the 11 files.
+  - `red/` is HEAD plus the 5 changed or new test files. A second red run added the two wrappers and the template, so that the fixture could build.
+- Not read: the author's conversation. The brief's claims were checked against the diff.
+- Registry safety: every owner command in this review ran inside pytest fixtures, with `HOME` and `APPROVAL_LOG` under pytest `tmp_path`. My own shell's owner-script guard refused every direct run, as it should.
+
+### Criteria Review
+
+| # | Criterion | Verdict | Evidence (command run in this review) |
+|---|---|---|---|
+| Brief's verify command | — | PASS | In `new/`: `python3 -m pytest tests/framework/test_delegate.py tests/framework/test_commit_msg_owner_trailer.py tests/hooks/test_approve_script.py tests/hooks/test_verify_approvals.py tests/hooks/test_guard_always_human.py -q -p no:cacheprovider` → `271 passed in 54.34s`. |
+| Red-first | New tests red before the change | PASS | Same command in `red/` → `14 failed, 221 passed, 36 errors`. The 36 errors are `test_delegate.py`'s fixture failing to copy the missing wrappers. To see the assertions themselves, I added the two wrappers and `order.md` to `red/` and ran `python3 -m pytest tests/framework/test_delegate.py -q -rA` → `34 failed, 2 passed`. All 12 never-grantable cases fail on `assert 'never grantable' in …`, because base argparse says `unrecognized arguments: --delegate …`. The other red tests are the 4 AM2-AC3 (b) commit cases, `test_a_same_day_reapproval_gets_a_revision_suffix`, `test_two_documents_with_the_same_stem_in_one_batch_get_distinct_keys`, `test_the_shared_writer_refuses_an_entry_missing_a_required_field`, the 6 `--help` cases and `test_a_legacy_duplicate_key_is_reported_as_information`. Two cases are green before the change; see Parked Q5. |
+| `approve.sh <slug>` unchanged | Existing approve behaviour and tests | PASS | I listed every removed line in `diff -ruN base new`. Only 8 lines were removed: 5 in `approve.py`, where the inline registry append was replaced by `write_entries`, which writes the same `json.dumps(…)+"\n"` lines in one write; and 3 in `autonomy.py` `check_commit`. No existing test line was removed or changed. The 4 test files only gain lines at the end. All existing `test_approve_script.py` cases are inside the 271, including the bare-key first approval. In the main path, `main()` only adds the `--delegate`/`--revoke` dispatch (a slug can never start with `--`) and the `revise` step, which leaves a key unchanged when the key is free. |
+| A-AC9 | Same-day re-approval gets `-r2`, then `-r3`; no two new lines share a key; legacy duplicates are reported as information | PASS | In the 271: a registry holding `k` and `k-r2` gives `k-r3`, also on the document's `Approval:` line. Two same-stem documents in one batch get distinct keys. `delegate.sh` gives `-r2` on a collision. `verify_approvals.py` with a duplicate → rc 0 and `legacy duplicate key (last entry wins): probe-key-1`, and no note when there is no duplicate. My probe `approve.sh thing --dry-run` against a registry already holding `spec-thing-<today>` prints `key: spec-thing-<today>-r2` and leaves the registry byte-identical. The real run then writes `-r2`. |
+| A-AC10 | Every new entry kind has the 5 fields; a probe line without `artifact` is red, the conforming shape green | PASS | `test_a_new_kind_line_missing_artifact_fails_every_declared_key`: rc 1 with `missing required field(s): ['artifact']`, then the conforming revocation shape → rc 0. The shared writer refuses an entry lacking `artifact` and writes nothing (`test_the_shared_writer_refuses_an_entry_missing_a_required_field`, red on HEAD). The order and revocation entries carry all 5 fields (`test_delegate.py` asserts each one). |
+| J-AC1 | `delegate.sh` writes `doc/orders/ORDER-<project>-<s>.md` from `order.md`, approved with its key; `git add`; one registry entry with the 5 fields plus `kind: order`, `grants`, `expires`, `task_sha256`; key `order-<project>-<s>-<date>[-rN]`; `verify_approvals.py` passes | PASS | `test_delegate_writes_the_document_stages_it_and_appends_one_order_entry` checks each of these: 1 entry; exactly `[doc/orders/ORDER-proj-first.md]` staged; one `Status: Approved` line and one `Approval: <key>` line; no template marker left; `status` prints `order <key>`. The end-to-end test commits the second order under its own key, and the committed `Task:` bytes (`"  task with spaces  "`) hash to `task_sha256`. My probe `<key> <task>` as the task text is written verbatim, so the substitution is one pass. On "`verify_approvals.py` passes": it passes, but for now that says little, because `doc/orders` is not yet in its `_DOC_DIRS` (increment 4 adds it), so the order document is not resolved. The registry stays readable after order plus revocation (`test_every_entry_the_owner_commands_write_resolves_for_the_verifier`, rc 0). |
+| J-AC2 | Never-grantable (12), unknown, bare `deploy`, and `merge` without the gate → exit 2 naming the grant | PASS | 12/12 never-grantable cases plus `deploy`, `fly` and an empty grant are refused with rc 2 and nothing written. `merge` with `verify-merge.sh` deleted → `merge needs the verify-tiers merge gate`. `merge`, `deploy-dev` and `deploy-prod` are issued when named. Probes: `SPEC` and `prd,PRD` → rc 2 `unknown grant`; `spec,` → `unknown grant (empty)`; `spec, code` → rc 2 `unknown grant  code` (fails closed, with an odd double space). |
+| AM2-AC3 (b) | An added order document commits under its own live, unrevoked order key; still refused: modified, different, revoked or expired order, other protected paths | PASS | In the 271: own key → rc 0; no trailer → AH5 naming the path; `different-order`, `revoked`, `expired`, `other-project`, `not-an-order` → AH5; modified under its own key → AH5; an order key does not carry `scripts/autonomy.json` or a second order document. Code read: the `issued` keys clear only `--diff-filter=A` paths equal to their own `artifact`, and `CONFIG_REL` is cleared only on the opt-in path. Probe through the real `delegate.sh` and commit-msg: order 2 under order 1's key → rc 1 AH5; under the upper-cased key → rc 1; under its own key with surrounding spaces on the trailer → rc 0. |
+| AM2-AC7 | `--help`, `-h`, and `"t" --by o --help` for both wrappers → rc 0, registry byte-identical, `git status` unchanged; the guard allows them in a plain project and under an order | PASS | `test_the_owner_wrappers_print_help_and_write_nothing` (6 cases, red on HEAD) checks rc 0, `usage:`, registry bytes and `git status --porcelain`. `test_asking_an_order_wrapper_for_help_is_allowed` (12 cases) passes. `-k "owner or wrapper"` over `test_guard_always_human.py` → `77 passed`. Probe: `--dry-run` and `--list` given to either wrapper make argparse exit 2 before any write; the registry is byte-identical and no `doc/orders` directory is created. |
+| A-AC7 (registry half) | `revoke.sh <key> --by o` → key `revoke-<target>-<date>[-rN]`, `kind: revocation`, `revokes`, target's `artifact`, status `Revoked` | PASS | `test_revoke_appends_a_revocation_entry_and_the_order_stops_governing` checks each field. `status` goes from `order <key>` to `inactive`. The `approve-under` and spawn halves are increment 4. |
+| A-AC6 (c) | The agent running an owner command is refused | PASS | Re-run, nothing built: `test_owner_commands_are_refused_in_a_project_without_autonomy` and `…_under_autonomy_too` pass in the 271. The new `test_running_an_order_wrapper_stays_owner_only` covers 4 spellings, including `python3 scripts/approve.py --revoke k`, in both projects. My own shell was refused 3 times by the same rule during this review (`owner-only approve.py`, `owner-only delegate.sh`). |
+| A-AC8 | No opt-in → unchanged | PASS | `check_commit` still returns `[]` while `inactive`, before the new branch is reached. The exit gate below runs `tests/hooks/` 1521 passed (base 1489; the +32 are the new cases) and `tests/ci/` 43 passed (base 43). `approve-under` does not exist yet (increment 4). |
+| Author-added refusals | Reasonable? | PASS | Each one fails closed, writes nothing, and names its reason (probe and tests): an empty or whitespace-only task; `--until` not `YYYY-MM-DD`, an impossible date, or in the past (today is allowed, matching `_authority`'s inclusive `expires`); a bad `--slug`; no `--by`; no project slug; an existing order document (it never overwrites, which AM2-AC3 would refuse to commit anyway); revoking an unknown key, a revocation, or an already-revoked key. None of them blocks a valid owner order in the spec's examples. |
+| `--allow` assumption | "`--allow` names the grants exactly; omitted → defaults" | PASS (ambiguity recorded) | PRD R41, design §J and J-AC1 all write `--allow <grants>`, and none of them says whether named grants replace the defaults or add to them. My probe: `--allow merge` → `grants: ["merge"]`, with no prd, spec or code. That is the narrow direction: an owner who meant "defaults plus merge" gets an order that can approve less, never more. The help text prints the default list. Owner decision Q1 below. |
+| Exit gate | `scripts/verify-full.sh` | PASS | Run on `new/` → `rc=0`: hooks `1521 passed`, ci-examples `43 passed`, scar-forge OK, coordinator `174 passed`, framework OK (`tests/framework/` plus `check_neutrality.py` plus `memory_lint.py`, 0 problems; this step prints no count). On `base/` for comparison → `rc=0`: hooks `1489 passed`, ci-examples `43 passed`, coordinator `174 passed`, framework OK. Lint, format and tests are the template's `TODO` placeholders ("this step verified NOTHING") in both. |
+
+### Defects
+
+| Severity | Description | Where | Back to |
+|---|---|---|---|
+| Low (not blocking) | `scripts/verify-fast.sh` has no routing for the new files. The spec's files table says every increment adds routing `case` lines. `bash scripts/verify-fast.sh tests/framework/test_delegate.py doc/templates/order.md` in `new/` runs only the two unconfigured `== lint`/`== tests` steps, so no suite runs. The new wrappers are not matched either: only `*"scripts/approve"*` is, and it runs `tests/hooks/` without `test_delegate.py`. A one-line case like the increment-2 one would fix it. `verify-fast.sh` was not in the 11 files, so this may sit outside the author's brief. | `scripts/verify-fast.sh` (not touched) | coordinator (decide whether it belongs to this increment) |
+| Low (not blocking) | `--by` is not checked for line breaks, and it is substituted into the order document. Probe: `--by $'o\nStatus: Done'` → rc 0, and the document gets two Status lines, `Status: Approved` and `Status: Done on 2026-10-22`. It is owner input, so this is a mistake path, not an attack, but it produces an order document that breaks the one-Status-line rule. Refusing control characters in `--by`, as is already done for the task, closes it. | `scripts/approve.py` `delegate_main` | ai-engineer (author run a302faca16121a04e) |
+
+### Hostile inputs tried (scratch `new/`, pytest `tmp_path` registry)
+
+- Task with U+000C, U+000B, U+0085 or U+2028 → rc 0. The committed bytes hold one `Task:` line (split on `\n`), but Python `str.splitlines()` cuts it at `Task: a`. See Q2.
+- Task `"   "` or `"\t"` → rc 2 `the task is empty`. Task `"line one\r\nline two"` → rc 2 (in the tests).
+- `--allow spec,spec` → rc 0 with `grants: ["spec","spec"]`. A harmless duplicate.
+- `--until` of today → rc 0. `2026-02-30`, full-width digits `２０９９-０１-０１` and `2099-1-1` → rc 2.
+- `revoke.sh` of a plain owner approval (no `kind`) → rc 0, writing a revocation entry. See Q4.
+- An upper-cased order key on the trailer → refused. A trailer with extra spaces → accepted (regex `\s*`).
+
+### Parked (outside the threat model, or tests could be stronger; for the coordinator)
+
+- **Q1 — owner decision: what `--allow` means.** There are two readings. (A) is the author's: named grants replace the defaults. (B): named opt-ins are added to the defaults. Under (A), `--allow merge` gives an order that can only merge. The spec does not settle it. (A) fails narrow, so it is safe to ship. If the owner wants (B), it is a small change to `delegate_main` plus one test.
+- **Q2 — for increment 4: hash the bytes split on `\n`.** `delegate.sh` refuses only `\n` and `\r`. AM2-AC5 (d) says `approve-under` hashes "up to (not including) the line end". If increment 4 reads the line with `str.splitlines()`, an order whose task holds U+2028, U+0085, `\v` or `\f` will be refused as "not committed as issued". That fails closed. The test `test_the_issued_order_commits_…` already splits on `b"\n"`, which is the right model.
+- **Q3 — `project_slug()` in `approve.py` is stricter than `autonomy._slug()`.** It requires `^[a-z0-9]+(-[a-z0-9]+)*$`. A project whose `autonomy.json` slug has an underscore or capitals is treated as opted in by autonomy, but `delegate.sh` refuses it with "names no project slug", which misleads. This is not seen in the spec's fixtures.
+- **Q4 — `revoke.sh` also revokes plain owner approvals.** The help says "order, mandate or approval". A-AC7 only names mandate and order keys. Today the only effect is that `check_commit` stops accepting that key as a trailer, which is consistent. Whether a revoked plain approval should also fail `verify_approvals.py` is not specified.
+- **Q5 — 2 tests are green before the change.** `test_no_issuer_is_refused` and `test_bad_arguments_are_refused_and_write_nothing[--slug]` assert only rc 2 and an option name in stderr, and base argparse's usage text contains both. Asserting the `refused — nothing written:` prefix would make them red-first. Tests could be stronger.
+- **Q6 — a failure between staging and the registry write leaves a staged order with no entry.** `delegate_main` writes and stages the document, then appends the entry. An `OSError` on the registry file (for example a read-only directory) would end in a traceback with the document staged. I did not plant this. The owner would see it, and the commit would then be refused (no live order key), so it fails closed.
+
+## Review history
+
+### Increment 2 — Log (reviewer run a10b15a401c97dfa2) — result PASS
+
+Increment 2 (Log) meets AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 for `log`/`verify-log` and A-AC8. The new tests are red on HEAD (139 failed) and green with the change (312 passed). The exit gate is green on its configured steps. There is one stray whitespace edit to fix before commit (see Defects, Low, not blocking).
+
+#### Read from
 
 - Upstream: doc/specs/SPEC-delegated-autonomy-am2-task-orders-scope.md (increment plan row 2; AM2-AC2, AM2-AC3 (a), AM2-AC8, the `scripts/verify-fast.sh` and `test_*` rows of the files table, AM2-ADR-2, D-L11) and doc/specs/SPEC-delegated-autonomy.md (F-AC2, C-AC1, C-AC2, A-AC8 wording).
 - Change: the author's uncommitted files in worktree `.claude/worktrees/agent-a652078d3d8838f6b`, on the same HEAD as this branch (d535bfb). I ran `diff -rq` over the two trees. Exactly 8 files differ: `scripts/autonomy.py`, `scripts/verify-fast.sh`, `ci-examples/github-actions.yml`, `ci-examples/azure-pipelines.yml`, `tests/framework/test_commit_msg_owner_trailer.py`, `tests/hooks/test_guard_always_human.py`, `tests/ci/test_ci_examples.py`, and the new `tests/framework/test_decision_log.py`. A `.verify/` run directory is also present, which is a run artefact.
 - Scratch copy: reviewer scratchpad `scr/` = this worktree's HEAD (rsync, `git init`, committed as base). First the 4 test files, then the 4 production files. The author's worktree was only read, never written.
 - Not read: the author's conversation. The brief's description of the change was checked against the diff.
 
-### Criteria Review
+#### Criteria Review
 
 | # | Criterion | Verdict | Evidence (command run in this review) |
 |---|---|---|---|
@@ -36,13 +100,13 @@ Increment 2 (Log) meets AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 for `log`/`verify-l
 | Out-of-Files edits | The CI YAML and `verify-fast.sh` are what the spec asks | PASS | The spec's files table lists `scripts/verify-fast.sh` ("routing lines for new scripts and tests … each"), and increment row 2 says "CI step in both YAML files". The routing change only adds `test_decision_log` and `test_commit_msg_owner_trailer` to the existing case that runs `tests/framework/ tests/hooks/`. |
 | Exit gate | `scripts/verify-full.sh` | PASS | Run on the scratch copy → `verify-full rc=0`: hooks `1489 passed`, ci-examples `43 passed`, scar-forge OK, coordinator `174 passed`, framework OK (memory 0 problems). Lint, format and tests are the template's `TODO` placeholders ("this step verified NOTHING"), the same as on HEAD. |
 
-### Defects
+#### Defects
 
 | Severity | Description | Where | Back to |
 |---|---|---|---|
 | Low (not blocking) | A whitespace edit on a line this increment does not need: `entries, _ = verify_approvals.load_registry(…)` became `entries, _ =verify_approvals.load_registry(…)`. It changes no behaviour, but it breaks the surgical-change rule and the file's formatting. Restore the space before committing. | `scripts/autonomy.py`, `check_commit`, the `load_registry` line just after the new carve-out | ai-engineer (author run a652078d3d8838f6b) |
 
-### Hostile inputs tried (`log` unless stated)
+#### Hostile inputs tried (`log` unless stated)
 
 - `kind: "Approval"` (a case variant) with `reverse: "whatever"` → rc 0. The grammar check matches `kind` exactly. See Parked P1.
 - `why: ""` → rc 0. "Required" is checked as "not null", not "not empty". See Parked P2.
@@ -50,7 +114,7 @@ Increment 2 (Log) meets AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 for `log`/`verify-l
 - `why` containing U+2028 → rc 0 and written raw (`ensure_ascii=False`). Python's `splitlines()` then counts 9 lines where `wc -l` counts 8, and after an edit of the last line `verify-log` named "line 9" instead of 8. It is still red, so only the line number is off. See Parked P4.
 - `verify-log --append-only ""`, a tree object, `nosuchref` → rc 2 (fails closed).
 
-### Parked (outside the threat model, or tests could be stronger; for the coordinator)
+#### Parked (outside the threat model, or tests could be stronger; for the coordinator)
 
 - **P1 — `kind` is not checked against a list.** A sloppy `Approval` or ` approval` skips F-AC2's grammar. I expect increment 4's validator (not built yet) to match `kind: approval` exactly, so it would not count this entry. That is an expectation, not something I measured. A future fix is to refuse an unknown `kind`, or to normalise it.
 - **P2 — empty-string fields count as present.** C-AC1 says "lacks", which the code reads as missing or null.
@@ -62,7 +126,6 @@ Increment 2 (Log) meets AM2-AC2, F-AC2, AM2-AC3 (a), AM2-AC8 for `log`/`verify-l
 - **P8 — 4 malformed-input tests are green before the change** (`test_malformed_input_exits_2_without_a_traceback[not-json|a-list|options-not-a-list|choice-not-text]`). They assert only exit 2 with no traceback, and on HEAD argparse rejects the unknown `log` subcommand with exit 2. Asserting the `log:` message would make them red-first. These are field checks, outside AM2-AC2's RED-FIRST clause (tamper). Tests could be stronger.
 - D-L11 (forged appended lines) is the spec's own stated limit, unchanged.
 
-## Review history
 
 ### Increment 1, round 3 (reviewer run a937e09bb10826b24) — result PASS
 
@@ -233,3 +296,4 @@ None.
 - **2026-10-22 — round 2 (rework after QA FAIL at 17ce083).** Reviewer run ab1fa0c0beac00430, from the spec, the QA report, the author's uncommitted 3-file rework in worktree agent-ab74ef54c3710742d, and commands run on scratch copies (`rvf2-ab1fa/`). FAIL: the QA defects are closed, but 2 regressions appeared in F-AC1's refused half.
 - **2026-10-22 — round 3 (delta after round-2 FAIL).** Reviewer run a937e09bb10826b24, from the spec, the round-2 section, the author's uncommitted 3-file rework in worktree agent-ab74ef54c3710742d, and commands run on scratch copies (`rvf3-a937e/`). PASS: both regressions are closed and both QA defects stay closed. In the round-2 probe set, the only round-1 refusal still allowed is the declared `pushd`/`popd` limit.
 - **2026-10-22 — increment 2 (Log).** Reviewer run a10b15a401c97dfa2, from the spec, the parent spec's F-AC2/C-AC1/C-AC2/A-AC8 rows, the author's uncommitted 8-file change in worktree agent-a652078d3d8838f6b, and commands run on a scratch copy (`scr/`). PASS: red-first 139 failed on HEAD, 312 passed with the change, exit gate rc 0. One Low, non-blocking defect (a stray whitespace edit). P1–P8 are parked.
+- **2026-10-22 — increment 3 (Registry and owner commands).** Reviewer run a6edbcdf772e6fa2d, from the spec, the parent spec's A-AC6 (c)/A-AC7/A-AC8/A-AC9/A-AC10/J-AC1/J-AC2 rows, PRD R41, design §J, the author's uncommitted 11-file change in worktree agent-a302faca16121a04e, and commands run on scratch copies (`base/`, `new/`, `red/`). PASS: red-first (all 12 never-grantable cases and every new AM2-AC3 (b), A-AC9, A-AC10 and AM2-AC7 writer case red on HEAD), 271 passed with the change, exit gate on its configured steps. Two Low, non-blocking defects (verify-fast routing, `--by` line breaks). Q1 (`--allow` reading) is for the owner; Q2–Q6 are parked.
