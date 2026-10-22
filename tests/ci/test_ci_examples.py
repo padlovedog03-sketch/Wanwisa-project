@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -346,18 +347,69 @@ def test_gate_3_scripts_are_byte_identical_between_the_two_files() -> None:
     assert gh_run.strip() == ado_script.strip()
 
 
-def test_gate_3_exclusions_match_bootstraps_own_leftover_check() -> None:
-    """`scripts/bootstrap.sh` runs the identical grep, with the identical three
-    exclusions, to report what IT left unfilled. If a future edit adds a
-    fourth excluded directory to one and not the other, bootstrap would call
-    a placeholder "filled" that CI would still fail on, or vice versa — this
-    is the drift this test exists to catch."""
+#: Every path Gate 3 skips, in the exact `grep -v` form both CI files and
+#: `scripts/bootstrap.sh` must spell it.
+_GATE_3_EXCLUSIONS = (
+    "doc/framework/",
+    "doc/templates/",
+    "scripts/bootstrap.sh",
+    r"^\.claude/worktrees/",
+)
+
+
+def test_gate_3_exclusions_match_bootstraps_own_leftover_check(tmp_path: Path) -> None:
+    """`scripts/bootstrap.sh` runs the identical grep, with the identical
+    exclusions, to report what IT left unfilled. If a future edit adds an
+    excluded directory to one and not the other, bootstrap would call a
+    placeholder "filled" that CI would still fail on, or vice versa — this
+    is the drift this test exists to catch.
+
+    The textual match alone does not prove bootstrap's *substitution* skips
+    agent worktrees too, so the second half runs bootstrap on a scratch copy:
+    a placeholder inside `.claude/worktrees/` is neither rewritten nor
+    reported, while real files beside it (including one merely named
+    `worktrees-…`) still are."""
     gate3_body = _gh_step("ไม่มีตัวยึดหลงเหลือ")["run"]
     bootstrap_body = _BOOTSTRAP.read_text(encoding="utf-8")
-    for excluded in ("doc/framework/", "doc/templates/", "scripts/bootstrap.sh"):
+    for excluded in _GATE_3_EXCLUSIONS:
         needle = f"grep -v '{excluded}'"
         assert needle in gate3_body, f"{needle!r} missing from the CI gate"
         assert needle in bootstrap_body, f"{needle!r} missing from bootstrap.sh"
+    assert gate3_body.count("grep -v '") == len(_GATE_3_EXCLUSIONS), (
+        "CI gate 3 has an exclusion this test does not list"
+    )
+
+    repo = tmp_path / "repo"
+    shutil.copytree(
+        _REPO_ROOT,
+        repo,
+        ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc", "worktrees"),
+    )
+    worktree_file = repo / ".claude/worktrees/agent-x/doc/f.md"
+    worktree_md = repo / ".claude/worktrees/agent-x/AGENTS.md"
+    notes = repo / "doc/worktrees-notes.md"
+    for path, text in (
+        (worktree_file, "fixture <ABC_DEF>\n"),
+        (worktree_md, "name <PROJECT>\n"),
+        (notes, "leftover <ABC_DEF>\n"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "scripts/bootstrap.sh"],
+        cwd=repo,
+        input="Acme Portal\nacme\n/tmp/acme-backend\n/tmp/acme-frontend\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not re.search(r"^\s*\.claude/worktrees/", result.stdout, re.MULTILINE), result.stdout
+    assert worktree_md.read_text(encoding="utf-8") == "name <PROJECT>\n"
+    assert "doc/worktrees-notes.md:1:leftover <ABC_DEF>" in result.stdout
+    assert "<PROJECT>" not in (repo / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Acme Portal" in (repo / "AGENTS.md").read_text(encoding="utf-8")
 
 
 def test_gate_3_is_red_on_this_repos_own_current_state(tmp_path: Path) -> None:

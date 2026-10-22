@@ -428,12 +428,19 @@ def _approve_ready_main(slugs: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] in (["--help"], ["-h"]):
+        print(__doc__)
+        return 0
     if argv[:1] == ["--approve-ready"]:
         return _approve_ready_main(argv[1:])
     if len(argv) != 1:
         print("usage: coordinator_lint.py <file>|-", file=sys.stderr)
         return 2
-    text = sys.stdin.read() if argv[0] == "-" else Path(argv[0]).read_text(encoding="utf-8")
+    try:
+        text = sys.stdin.read() if argv[0] == "-" else Path(argv[0]).read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"coordinator-lint: cannot read {argv[0]}: {exc.strerror}", file=sys.stderr)
+        return 2
 
     violations = lint(text)
     if not violations:
