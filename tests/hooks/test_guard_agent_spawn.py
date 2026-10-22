@@ -327,7 +327,7 @@ _REVIEW_GATED = ("qa", "frontend-qa")
 _PROBE_SLUG = "zz99-review-gate-probe"
 _PROBE_REVIEW = f"REVIEW-{_PROBE_SLUG}.md"
 _PROBE_BUGFIX_REVIEW = "REVIEW-bugfix-zz99-probe.md"
-_QA_PROMPT = f"Verify doc/specs/SPEC-{_PROBE_SLUG}.md against its acceptance criteria.\nReview: doc/qa/{_PROBE_REVIEW}"
+_QA_PROMPT = f"Verify against its acceptance criteria.\nSpec: doc/specs/SPEC-{_PROBE_SLUG}.md\nReview: doc/qa/{_PROBE_REVIEW}"
 _ADD_REVIEW_LINE = 'add "Review: doc/qa/REVIEW-<slug>.md" (a PASS review by a different run) to the QA prompt'
 
 _GOOD_REVIEW = (
@@ -509,14 +509,14 @@ def test_a_passing_review_for_another_slug_does_not_count(review_doc) -> None:
 
 def test_an_explicitly_named_review_must_exist_exactly(review_doc) -> None:
     review_doc(_GOOD_REVIEW, name="REVIEW-zz99-a-b.md")
-    result = _run_gate(subagent_type="qa", prompt=f"Verify SPEC-{_PROBE_SLUG}.md.\nReview: doc/qa/REVIEW-zz99-a.md")
+    result = _run_gate(subagent_type="qa", prompt=f"Spec: SPEC-{_PROBE_SLUG}.md\nReview: doc/qa/REVIEW-zz99-a.md")
     assert result.returncode == _EXIT_BLOCK, result.stdout
     assert "REVIEW-zz99-a.md" in result.stderr
 
 
 def test_an_explicitly_named_passing_review_allows(review_doc) -> None:
     review_doc(_GOOD_REVIEW, name="REVIEW-zz99-a.md")
-    result = _run_gate(subagent_type="qa", prompt=f"Verify SPEC-{_PROBE_SLUG}.md.\nReview: doc/qa/REVIEW-zz99-a.md")
+    result = _run_gate(subagent_type="qa", prompt=f"Spec: SPEC-{_PROBE_SLUG}.md\nReview: doc/qa/REVIEW-zz99-a.md")
     assert result.returncode == _EXIT_ALLOW, result.stderr
 
 
@@ -524,7 +524,7 @@ def test_only_the_review_line_counts_not_reviews_mentioned_elsewhere(review_doc)
     """A passing review quoted elsewhere in the prompt cannot rescue the named one."""
     review_doc(_GOOD_REVIEW, name="REVIEW-zz99-a.md")
     review_doc(_GOOD_REVIEW.replace("## Verdict: PASS", "## Verdict: FAIL"), name="REVIEW-zz99-b.md")
-    prompt = f"Verify SPEC-{_PROBE_SLUG}.md; compare REVIEW-zz99-a.md.\nReview: REVIEW-zz99-b.md"
+    prompt = f"Compare REVIEW-zz99-a.md.\nSpec: SPEC-{_PROBE_SLUG}.md\nReview: REVIEW-zz99-b.md"
     result = _run_gate(subagent_type="qa", prompt=prompt)
     assert result.returncode == _EXIT_BLOCK, result.stdout
     assert "REVIEW-zz99-b.md" in result.stderr
@@ -533,14 +533,14 @@ def test_only_the_review_line_counts_not_reviews_mentioned_elsewhere(review_doc)
 def test_a_named_review_of_another_spec_does_not_cover_the_named_spec(review_doc) -> None:
     """Accident shape: a PASS review of other work quoted in a QA prompt for SPEC-zz99-a."""
     review_doc(_GOOD_REVIEW.replace(f"SPEC-{_PROBE_SLUG}.md", "SPEC-zz99-b.md"), name="REVIEW-zz99-b.md")
-    result = _run_gate(subagent_type="qa", prompt="Verify doc/specs/SPEC-zz99-a.md.\nReview: REVIEW-zz99-b.md")
+    result = _run_gate(subagent_type="qa", prompt="Spec: doc/specs/SPEC-zz99-a.md\nReview: REVIEW-zz99-b.md")
     assert result.returncode == _EXIT_BLOCK, result.stdout
     assert "Upstream" in result.stderr and "SPEC-zz99-a.md" in result.stderr
 
 
 def test_an_increment_scoped_review_of_the_named_spec_allows(review_doc) -> None:
     review_doc(_GOOD_REVIEW.replace(f"SPEC-{_PROBE_SLUG}.md", "SPEC-zz99-a.md"), name="REVIEW-zz99-a-E.md")
-    result = _run_gate(subagent_type="qa", prompt="Verify doc/specs/SPEC-zz99-a.md increment E.\nReview: REVIEW-zz99-a-E.md")
+    result = _run_gate(subagent_type="qa", prompt="Spec: doc/specs/SPEC-zz99-a.md increment E\nReview: REVIEW-zz99-a-E.md")
     assert result.returncode == _EXIT_ALLOW, result.stderr
 
 
@@ -623,7 +623,7 @@ def test_a_prompt_with_no_review_line_blocks_with_one_line_saying_add_it(subagen
 def test_the_review_line_is_read_plain_bulleted_or_bold(review_line: str, review_doc) -> None:
     """A REVIEW quoted for context (missing here) does not count against the named one."""
     review_doc(_GOOD_REVIEW)
-    prompt = f"Verify doc/specs/SPEC-{_PROBE_SLUG}.md; earlier round: REVIEW-zz99-c.md.\n{review_line}"
+    prompt = f"Earlier round: REVIEW-zz99-c.md.\nSpec: doc/specs/SPEC-{_PROBE_SLUG}.md\n{review_line}"
     result = _run_gate(subagent_type="qa", prompt=prompt)
     assert result.returncode == _EXIT_ALLOW, result.stderr
 
@@ -644,16 +644,16 @@ def test_a_review_line_naming_no_review_file_blocks_with_the_add_line_message() 
 def test_a_review_line_pointing_at_another_specs_review_blocks(review_doc) -> None:
     """Defect 1: the dependency is named too, but QA is about SPEC-zz99-a only."""
     review_doc(_review_of("SPEC-zz99-b.md"), name="REVIEW-zz99-b.md")
-    prompt = "Verify doc/specs/SPEC-zz99-a.md (builds on SPEC-zz99-b.md).\nReview: doc/qa/REVIEW-zz99-b.md"
+    prompt = "Builds on SPEC-zz99-b.md.\nSpec: doc/specs/SPEC-zz99-a.md\nReview: doc/qa/REVIEW-zz99-b.md"
     result = _run_gate(subagent_type="qa", prompt=prompt)
     assert result.returncode == _EXIT_BLOCK, result.stdout
     assert "Upstream" in result.stderr and "SPEC-zz99-a.md" in result.stderr
 
 
-def test_a_review_of_the_first_named_spec_allows_although_a_dependency_is_named(review_doc) -> None:
+def test_a_review_of_the_spec_line_spec_allows_although_a_dependency_is_named(review_doc) -> None:
     """The old derived-name path blocked this correct QA on a missing REVIEW-zz99-b.md."""
     review_doc(_review_of("SPEC-zz99-a.md"), name="REVIEW-zz99-a.md")
-    prompt = "QA SPEC-zz99-a.md (builds on SPEC-zz99-b.md)\nReview: doc/qa/REVIEW-zz99-a.md"
+    prompt = "QA the change (builds on SPEC-zz99-b.md)\nSpec: SPEC-zz99-a.md\nReview: doc/qa/REVIEW-zz99-a.md"
     result = _run_gate(subagent_type="qa", prompt=prompt)
     assert result.returncode == _EXIT_ALLOW, result.stderr
 
@@ -669,11 +669,13 @@ def test_a_spec_or_slice_line_names_the_spec_under_test_over_the_first_mention(f
     assert blocked.returncode == _EXIT_BLOCK, blocked.stdout
 
 
-def test_a_slice_line_without_a_spec_path_falls_back_to_the_first_named_spec(review_doc) -> None:
+def test_a_slice_line_without_a_spec_path_does_not_fall_back_to_a_spec_named_in_prose(review_doc) -> None:
+    """QA re-test 2: the first-mention fallback let a dependency's review open QA."""
     review_doc(_review_of("SPEC-zz99-a.md"), name="REVIEW-zz99-a.md")
     prompt = "Slice: increment E part 1\nCriteria: E-AC2 of doc/specs/SPEC-zz99-a.md\nReview: REVIEW-zz99-a.md"
     result = _run_gate(subagent_type="qa", prompt=prompt)
-    assert result.returncode == _EXIT_ALLOW, result.stderr
+    assert result.returncode == _EXIT_BLOCK, result.stdout
+    assert "Spec: doc/specs/SPEC-<slug>.md" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -682,7 +684,7 @@ def test_a_slice_line_without_a_spec_path_falls_back_to_the_first_named_spec(rev
 )
 def test_an_upstream_near_miss_of_the_spec_under_test_blocks(upstream: str, review_doc) -> None:
     review_doc(_GOOD_REVIEW.replace(f"doc/specs/SPEC-{_PROBE_SLUG}.md", upstream), name="REVIEW-zz99-a.md")
-    result = _run_gate(subagent_type="qa", prompt="Verify doc/specs/SPEC-zz99-a.md.\nReview: REVIEW-zz99-a.md")
+    result = _run_gate(subagent_type="qa", prompt="Spec: doc/specs/SPEC-zz99-a.md\nReview: REVIEW-zz99-a.md")
     assert result.returncode == _EXIT_BLOCK, result.stdout
 
 
@@ -698,14 +700,14 @@ def test_a_review_line_with_no_spec_named_blocks_and_asks_for_the_spec(review_do
 def test_only_the_first_review_line_counts(review_doc) -> None:
     review_doc(_GOOD_REVIEW.replace("## Verdict: PASS", "## Verdict: FAIL"), name="REVIEW-zz99-b.md")
     review_doc(_GOOD_REVIEW)
-    prompt = f"Verify SPEC-{_PROBE_SLUG}.md.\nReview: REVIEW-zz99-b.md\nReview: {_PROBE_REVIEW}"
+    prompt = f"Spec: SPEC-{_PROBE_SLUG}.md\nReview: REVIEW-zz99-b.md\nReview: {_PROBE_REVIEW}"
     result = _run_gate(subagent_type="qa", prompt=prompt)
     assert result.returncode == _EXIT_BLOCK, result.stdout
 
 
 def test_a_review_path_outside_doc_qa_is_read_from_doc_qa_only(review_doc) -> None:
     """Only the file name is used, so `../` cannot point the gate outside doc/qa/."""
-    result = _run_gate(subagent_type="qa", prompt=f"Verify SPEC-{_PROBE_SLUG}.md.\nReview: ../../../tmp/{_PROBE_REVIEW}")
+    result = _run_gate(subagent_type="qa", prompt=f"Spec: SPEC-{_PROBE_SLUG}.md\nReview: ../../../tmp/{_PROBE_REVIEW}")
     assert result.returncode == _EXIT_BLOCK, result.stdout
     assert f"doc/qa/{_PROBE_REVIEW}: not found" in result.stderr
 

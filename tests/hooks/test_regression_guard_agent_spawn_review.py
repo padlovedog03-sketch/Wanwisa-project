@@ -89,6 +89,46 @@ def test_regression_a_dependency_review_quoted_for_context_does_not_open_qa_for_
     assert result.returncode == _EXIT_BLOCK, "QA opened with no review of the spec under test"
 
 
+def test_regression_qa_repro_a_dependency_named_first_does_not_open_qa_for_the_work_under_test(review_file) -> None:
+    """QA re-test 2 repro (QA-delegated-autonomy-E1): the dependency's PASS review,
+    the dependency named first in prose, no review of the work under test."""
+    review_file("REVIEW-zz99-qb.md", _review("zz99-qb"))
+    prompt = (
+        "QA the change. It builds on SPEC-zz99-qb.md; the work under test is SPEC-zz99-qa.md.\n"
+        "Review: doc/qa/REVIEW-zz99-qb.md"
+    )
+
+    result = _run_gate("qa", prompt)
+
+    assert result.returncode == _EXIT_BLOCK, "a dependency's review opened QA for other work"
+
+
+@pytest.mark.parametrize("subagent_type", ["qa", "frontend-qa"])
+def test_regression_a_qa_brief_with_no_spec_line_is_refused_and_told_to_add_one(subagent_type: str, review_file) -> None:
+    """The spec under test is never guessed from prose: no `Spec:`/`Slice:` line, no QA."""
+    review_file(f"REVIEW-{_UNDER_TEST}.md", _review(_UNDER_TEST))
+
+    result = _run_gate(subagent_type, f"Verify doc/specs/SPEC-{_UNDER_TEST}.md.\nReview: doc/qa/REVIEW-{_UNDER_TEST}.md")
+
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert result.returncode == _EXIT_BLOCK, result.stdout
+    assert len(lines) == 1 and "Spec: doc/specs/SPEC-<slug>.md" in lines[0], result.stderr
+
+
+@pytest.mark.parametrize("subagent_type", ["qa", "frontend-qa"])
+def test_regression_a_correct_brief_with_a_spec_line_and_matching_pass_review_opens(subagent_type: str, review_file) -> None:
+    review_file(f"REVIEW-{_UNDER_TEST}.md", _review(_UNDER_TEST))
+    prompt = (
+        f"QA the change. It builds on SPEC-{_DEPENDENCY}.md.\n"
+        f"Spec: doc/specs/SPEC-{_UNDER_TEST}.md\n"
+        f"Review: doc/qa/REVIEW-{_UNDER_TEST}.md"
+    )
+
+    result = _run_gate(subagent_type, prompt)
+
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
 # --- Pins on behaviour that works today -------------------------------------
 
 
@@ -104,7 +144,7 @@ def test_regression_ordinary_agent_types_are_never_gated_on_a_review(subagent_ty
 def test_regression_a_copied_but_unfilled_template_keeps_qa_shut(review_file) -> None:
     review_file(f"REVIEW-{_UNDER_TEST}.md", _TEMPLATE.read_text(encoding="utf-8"))
 
-    result = _run_gate("qa", f"Verify doc/specs/SPEC-{_UNDER_TEST}.md.\nReview: doc/qa/REVIEW-{_UNDER_TEST}.md")
+    result = _run_gate("qa", f"Spec: doc/specs/SPEC-{_UNDER_TEST}.md\nReview: doc/qa/REVIEW-{_UNDER_TEST}.md")
 
     assert result.returncode == _EXIT_BLOCK, result.stdout
     assert "PASS | FAIL" in result.stderr
@@ -114,7 +154,7 @@ def test_regression_a_copied_but_unfilled_template_keeps_qa_shut(review_file) ->
 def test_regression_every_review_block_is_one_line_naming_the_file_and_the_bad_value(review_file, verdict) -> None:
     review_file(f"REVIEW-{_UNDER_TEST}.md", _review(_UNDER_TEST, verdict))
 
-    result = _run_gate("frontend-qa", f"Verify doc/specs/SPEC-{_UNDER_TEST}.md.\nReview: doc/qa/REVIEW-{_UNDER_TEST}.md")
+    result = _run_gate("frontend-qa", f"Spec: doc/specs/SPEC-{_UNDER_TEST}.md\nReview: doc/qa/REVIEW-{_UNDER_TEST}.md")
 
     lines = [line for line in result.stderr.splitlines() if line.strip()]
     assert result.returncode == _EXIT_BLOCK

@@ -24,7 +24,7 @@ and REVIEW files mentioned elsewhere in the prompt are ignored. The file must
 exist in `doc/qa/` of the tree this hook lives in (the main tree, for the
 registered hook), have a PASS `Verdict:`, a `Reviewer-run:` different from its
 `Author-run:`, and an `Upstream:` naming the spec under test: the SPEC on a
-`Slice:` or `Spec:` line, else the first SPEC the prompt names. `NO_SPEC_BUGFIX:`
+`Slice:` or `Spec:` line (required; never guessed from prose). `NO_SPEC_BUGFIX:`
 work names a `REVIEW-bugfix-<id>.md` and has no spec to match. The engineer's
 override token never opens this gate. STATED LIMITS: different run IDs prove two
 runs, not that the reviewer ignored the author's conversation — that part is the
@@ -232,13 +232,13 @@ def _review_problem(path: Path, spec: str | None) -> str | None:
 
 
 def _spec_under_test(prompt: str) -> str | None:
-    """The SPEC on a `Slice:` or `Spec:` line, else the first SPEC the prompt names."""
+    """The SPEC on the first `Slice:` or `Spec:` line that names one. Never
+    guessed from prose: a dependency named first would open QA for other work."""
     for value in _SUBJECT_LINE_PATTERN.findall(prompt):
         found = _SPEC_NAME_PATTERN.search(value)
         if found:
             return found.group(1)
-    found = _SPEC_NAME_PATTERN.search(prompt)
-    return found.group(1) if found else None
+    return None
 
 
 def _check_review(subagent_type: str, prompt: str) -> None:
