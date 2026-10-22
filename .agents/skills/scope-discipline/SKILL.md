@@ -22,6 +22,9 @@ They apply to every role on every task, the coordinator included.
    no edit.
 4. **Observations outside the criteria go to the backlog, not back to the author.** QA and
    reviewers report them under `Parked:`; they are not rework and are not given a rework cause.
+   On a Tier 0 bugfix, review gets one rework round: after round 1, a finding that only says the
+   tests could be stronger (a mutant they miss) is `Parked:`, not FAIL. A finding that the shipped
+   fix is wrong still fails.
 5. **Gates defend against mistakes, not fraud.** A gate must catch what an agent does by accident
    or as a shortcut. Examples:
    - skipped or filtered tests;
