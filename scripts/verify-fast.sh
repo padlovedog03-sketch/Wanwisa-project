@@ -145,11 +145,13 @@ esac
 
 # The always-human list (scripts/autonomy.py) is imported by the hooks AND by
 # the commit-msg hook, so a touch to it, its project file, the git hooks or
-# their tests re-runs both suites that exercise it.
+# their tests re-runs both suites that exercise it. The order commands
+# (delegate.sh, revoke.sh, the order template) are tested in both too.
 case " $* " in
   *"scripts/autonomy"* | *"tests/framework/test_autonomy"* | *".githooks"* \
   | *"tests/framework/test_pre_commit"* | *"tests/framework/test_decision_log"* \
-  | *"tests/framework/test_commit_msg_owner_trailer"*)
+  | *"tests/framework/test_commit_msg_owner_trailer"* | *"scripts/delegate.sh"* \
+  | *"scripts/revoke.sh"* | *"doc/templates/order.md"* | *"tests/framework/test_delegate"*)
     echo "== always-human list tests"
     python3 -m pytest tests/framework/ tests/hooks/ -q
     ;;

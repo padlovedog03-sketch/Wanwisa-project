@@ -39,6 +39,7 @@ aborts the whole run, so a batch can never half-apply.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -144,6 +145,52 @@ def registry_path() -> Path:
     if override:
         return Path(override).expanduser()
     return DEFAULT_REGISTRY
+
+
+#: The fields every registry line needs, whatever its kind (ADR-1). One line
+#: without them makes `verify_approvals.py` fail every key on the machine.
+REQUIRED_FIELDS = ("key", "artifact", "status", "approved_by", "approved_at")
+
+
+def registry_entries() -> list[dict]:
+    """Every entry in the registry that parses; a malformed line is left for
+    `verify_approvals.py` to report."""
+    path = registry_path()
+    if not path.exists():
+        return []
+    entries = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries
+
+
+def revise(base: str, taken: set[str]) -> str:
+    """`base`, or `base-rN` with the first unused N from 2 (A-AC9, ADR-4)."""
+    if base not in taken:
+        return base
+    n = 2
+    while f"{base}-r{n}" in taken:
+        n += 1
+    return f"{base}-r{n}"
+
+
+def write_entries(entries: list[dict]) -> Path:
+    """The one registry writer every owner command uses (ADR-13): every entry
+    carries the five required fields, and all are appended in one write."""
+    for entry in entries:
+        missing = [field for field in REQUIRED_FIELDS if not entry.get(field)]
+        if missing:
+            raise ApprovalError(f"registry entry {entry.get('key')!r} lacks required field(s): {missing}")
+    path = registry_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries))
+    return path
 
 
 def tracked_documents() -> set[str]:
@@ -278,8 +325,220 @@ def list_pending(tracked: set[str]) -> list[str]:
     return pending
 
 
+# ---------------------------------------------------------------------------
+# Task orders (SPEC-delegated-autonomy J-AC1, J-AC2, A-AC7; am2 AM2-AC5 d).
+# `scripts/delegate.sh` and `scripts/revoke.sh` are thin wrappers that call
+# this file with a leading `--delegate` / `--revoke`, so every registry write
+# goes through `write_entries` (ADR-13) and stays behind the owner-script rule.
+# ---------------------------------------------------------------------------
+
+#: An order's grants (R41). `--allow` names them exactly; without it an order
+#: carries the defaults. The opt-in ones are granted by name only.
+DEFAULT_GRANTS = ("prd", "spec", "code", "tests", "qa", "business-rules-in-task")
+OPT_IN_GRANTS = ("merge", "deploy-dev", "deploy-prod")
+NEVER_GRANTABLE = (
+    "delete-data",
+    "delete-history",
+    "send-outside",
+    "spend",
+    "security",
+    "personal-data",
+    "change-mandate",
+    "change-orders",
+    "change-always-human",
+    "change-approval",
+    "change-bans",
+    "widen",
+)
+ORDER_TEMPLATE = "doc/templates/order.md"
+ORDER_DOC = "doc/orders/ORDER-{project}-{slug}.md"
+PROJECT_FILE = "scripts/autonomy.json"
+MERGE_GATE = "scripts/verify-merge.sh"
+SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_CONTROL = re.compile("[\x00-\x1f\x7f\u0085  ]")
+_MARKER = re.compile(r"<(project|slug|key|issuer|issued|task|grants|expires)>")
+
+
+def _refuse(message: str) -> int:
+    print(f"refused — nothing written: {message}", file=sys.stderr)
+    print(LIMIT_NOTICE, file=sys.stderr)
+    return 2
+
+
+def grant_problems(grants: list[str]) -> list[str]:
+    """Why each named grant cannot go on an order (J-AC2), or `[]`."""
+    problems = []
+    for grant in grants:
+        if grant in NEVER_GRANTABLE:
+            problems.append(f"grant {grant} is never grantable by an order (R41)")
+        elif grant == "deploy":
+            problems.append("grant deploy is ambiguous — say deploy-dev or deploy-prod")
+        elif grant == "merge" and not (REPO_ROOT / MERGE_GATE).is_file():
+            problems.append(f"merge needs the verify-tiers merge gate ({MERGE_GATE} is missing)")
+        elif grant not in DEFAULT_GRANTS + OPT_IN_GRANTS:
+            problems.append(f"unknown grant {grant or '(empty)'}")
+    return problems
+
+
+def project_slug() -> str | None:
+    try:
+        value = json.loads((REPO_ROOT / PROJECT_FILE).read_text(encoding="utf-8")).get("project")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        return None
+    return value if isinstance(value, str) and SLUG.match(value) else None
+
+
+def delegate_main(argv: list[str]) -> int:
+    """`scripts/delegate.sh "<task>" --by o --until <date> [--allow g1,g2] --slug s`."""
+    parser = argparse.ArgumentParser(
+        prog="scripts/delegate.sh",
+        description="Issue a task order: write and stage doc/orders/ORDER-<project>-<slug>.md "
+        "and append its kind order registry entry.",
+    )
+    parser.add_argument("task", help="the task, one line (point to a PRD for more)")
+    parser.add_argument("--by", default=os.environ.get(APPROVER_ENV, ""), help="who issues the order")
+    parser.add_argument("--until", required=True, help="the order expires after this date, YYYY-MM-DD")
+    parser.add_argument("--slug", required=True, help="the order's name, lowercase words joined by -")
+    parser.add_argument(
+        "--allow",
+        default=",".join(DEFAULT_GRANTS),
+        help=f"the grants, comma-separated (default: {','.join(DEFAULT_GRANTS)}; "
+        f"opt-in by name: {','.join(OPT_IN_GRANTS)})",
+    )
+    parser.add_argument("--evidence", default="", help="why, recorded in the registry")
+    args = parser.parse_args(argv)
+
+    now = datetime.now().astimezone()
+    today = now.strftime("%Y-%m-%d")
+    if "\n" in args.task or "\r" in args.task:
+        return _refuse("the task is one line — point to a PRD for more")
+    # Each lands on one header line of the order document; a control or
+    # line-separator character there could start a second header line.
+    for name, value in (("the task", args.task), ("--by", args.by)):
+        if _CONTROL.search(value):
+            return _refuse(f"{name} contains a control character — write it as plain text on one line")
+    if not args.task.strip():
+        return _refuse("the task is empty")
+    if not args.by:
+        return _refuse(f"who issues the order? pass `--by <your name>` or export {APPROVER_ENV}")
+    try:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.until):
+            raise ValueError
+        datetime.strptime(args.until, "%Y-%m-%d")
+    except ValueError:
+        return _refuse(f"--until {args.until!r} is not a date YYYY-MM-DD")
+    if args.until < today:
+        return _refuse(f"--until {args.until} is in the past")
+    if not SLUG.match(args.slug):
+        return _refuse(f"--slug {args.slug!r} must be lowercase letters and digits joined by -")
+    grants = args.allow.split(",")
+    problems = grant_problems(grants)
+    if problems:
+        return _refuse("; ".join(problems))
+    project = project_slug()
+    if project is None:
+        return _refuse(f"{PROJECT_FILE} names no project slug — the order's key and document need it")
+    relative = ORDER_DOC.format(project=project, slug=args.slug)
+    path = REPO_ROOT / relative
+    if path.exists():
+        return _refuse(f"{relative} already exists — an issued order is never rewritten; choose another --slug")
+
+    key = revise(f"order-{project}-{args.slug}-{today}", {str(e.get("key")) for e in registry_entries()})
+    values = {
+        "project": project,
+        "slug": args.slug,
+        "key": key,
+        "issuer": args.by,
+        "issued": today,
+        "task": args.task,
+        "grants": ", ".join(grants),
+        "expires": args.until,
+    }
+    template = (REPO_ROOT / ORDER_TEMPLATE).read_text(encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # One pass, so a marker-shaped string inside the task is written verbatim.
+    path.write_text(_MARKER.sub(lambda match: values[match.group(1)], template), encoding="utf-8")
+    staged = subprocess.run(["git", "add", "--", relative], cwd=REPO_ROOT, capture_output=True, text=True)
+    if staged.returncode != 0:
+        path.unlink()
+        return _refuse(f"git add {relative} failed: {staged.stderr.strip()}")
+    entry = {
+        "key": key,
+        "artifact": relative,
+        "status": APPROVED,
+        "approved_by": args.by,
+        "approved_at": now.isoformat(timespec="seconds"),
+        "evidence": args.evidence or f"order issued by {args.by} on {today} via scripts/delegate.sh",
+        "kind": "order",
+        "grants": grants,
+        "expires": args.until,
+        "task_sha256": hashlib.sha256(args.task.encode("utf-8")).hexdigest(),
+    }
+    registry = write_entries([entry])
+    print(f"order issued: {relative}  key={key}")
+    print(f"grants: {', '.join(grants)}  expires: {args.until}")
+    print(f"registry: {registry}")
+    print(f'next: git commit -m "order: {args.slug}" -m "Owner-Approved: {key}"')
+    print(f"\n{LIMIT_NOTICE}")
+    return 0
+
+
+def revoke_main(argv: list[str]) -> int:
+    """`scripts/revoke.sh <key> --by o`: append a revocation entry (A-AC7)."""
+    parser = argparse.ArgumentParser(
+        prog="scripts/revoke.sh",
+        description="Revoke an order, mandate or approval: append its kind revocation registry entry. "
+        "It takes effect at the next gate that reads the registry.",
+    )
+    parser.add_argument("target", help="the registry key to revoke")
+    parser.add_argument("--by", default=os.environ.get(APPROVER_ENV, ""), help="who revokes it")
+    parser.add_argument("--evidence", default="", help="why, recorded in the registry")
+    args = parser.parse_args(argv)
+
+    entries = registry_entries()
+    by_key = {str(entry.get("key")): entry for entry in entries}
+    target = by_key.get(args.target)
+    if not args.target or target is None:
+        return _refuse(f"{args.target!r} is not in the registry")
+    if target.get("kind") == "revocation":
+        return _refuse(f"{args.target} is itself a revocation")
+    earlier = [e for e in entries if e.get("kind") == "revocation" and e.get("revokes") == args.target]
+    if earlier:
+        return _refuse(f"{args.target} is already revoked by {earlier[0].get('key')}")
+    if not args.by:
+        return _refuse(f"who revokes it? pass `--by <your name>` or export {APPROVER_ENV}")
+
+    now = datetime.now().astimezone()
+    today = now.strftime("%Y-%m-%d")
+    key = revise(f"revoke-{args.target}-{today}", set(by_key))
+    entry = {
+        "key": key,
+        "artifact": str(target.get("artifact", "")),
+        "status": "Revoked",
+        "approved_by": args.by,
+        "approved_at": now.isoformat(timespec="seconds"),
+        "evidence": args.evidence or f"revoked by {args.by} on {today} via scripts/revoke.sh",
+        "kind": "revocation",
+        "revokes": args.target,
+    }
+    try:
+        registry = write_entries([entry])
+    except ApprovalError as error:
+        return _refuse(str(error))
+    print(f"revoked: {args.target}  key={key}")
+    print(f"registry: {registry}")
+    print(f"\n{LIMIT_NOTICE}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns a process exit code; never raises for expected failures."""
+    argv = sys.argv[1:] if argv is None else argv
+    # The order wrappers' entry points. A leading `--…` can never be a slug.
+    if argv[:1] == ["--delegate"]:
+        return delegate_main(argv[1:])
+    if argv[:1] == ["--revoke"]:
+        return revoke_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="scripts/approve.sh",
         description="Register the human's approval of documents, by slug.",
@@ -343,6 +602,14 @@ def main(argv: list[str] | None = None) -> int:
         print(LIMIT_NOTICE, file=sys.stderr)
         return 1
 
+    # A same-day re-approval gets `-rN`, so no two registry lines share a key,
+    # within this batch included (A-AC9).
+    taken = {str(entry.get("key")) for entry in registry_entries()}
+    for index, candidate in enumerate(candidates):
+        key = revise(candidate.key, taken)
+        taken.add(key)
+        candidates[index] = Candidate(path=candidate.path, relative=candidate.relative, key=key)
+
     print("กำลังจะอนุมัติ:")
     for candidate in candidates:
         print(f"  {candidate.relative}\n      key: {candidate.key}")
@@ -371,11 +638,7 @@ def main(argv: list[str] | None = None) -> int:
     approved_at = now.isoformat(timespec="seconds")
     entries = [apply(candidate, evidence, approved_at, args.by) for candidate in candidates]
 
-    path = registry_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        for entry in entries:
-            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    path = write_entries(entries)
 
     for entry in entries:
         print(f"อนุมัติแล้ว: {entry['artifact']}  key={entry['key']}")

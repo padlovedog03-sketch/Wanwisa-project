@@ -138,6 +138,28 @@ def load_registry(path: Path) -> tuple[dict[str, dict], str | None]:
     return entries, None
 
 
+def duplicate_keys(path: Path) -> dict[str, int]:
+    """Keys written on more than one registry line, with their counts.
+
+    Information only (A-AC9): the owner commands now give a same-day
+    re-approval a `-rN` key, so a duplicate predates that rule. `load_registry`
+    keeps the last line written for a key.
+    """
+    counts: dict[str, int] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return {}
+    for line in lines:
+        try:
+            key = json.loads(line).get("key")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if key:
+            counts[str(key)] = counts.get(str(key), 0) + 1
+    return {key: n for key, n in counts.items() if n > 1}
+
+
 def declared_approvals() -> list[tuple[str, str, str | None]]:
     """(relative path, approval key, status) for every tracked doc that declares one."""
     result = subprocess.run(
@@ -230,6 +252,8 @@ def main() -> int:
     path = registry_path()
 
     print(f"approval verification — registry {path}")
+    for key, count in sorted(duplicate_keys(path).items()):
+        print(f"  note: legacy duplicate key (last entry wins): {key} ×{count}")
     if checked == 0:
         # Printed explicitly. A run that checked nothing must not read like a
         # run that checked everything and found it clean.

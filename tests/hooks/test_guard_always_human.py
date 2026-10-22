@@ -548,3 +548,42 @@ def test_a_subcommand_not_yet_shipped_stays_refused_under_an_order(
     result = _run_guard(command, cwd=repo, registry=registry)
     assert result.returncode == _EXIT_BLOCK
     assert "always-human item AH5" in result.stderr
+
+
+# --------------------------------------------------------------------------- AM2-AC7, A-AC6 (c)
+# SPEC-delegated-autonomy-am2-task-orders-scope AM2-AC7: asking the order
+# wrappers for help is allowed in a plain project and under an order (B-AC10's
+# reader rule); running them stays owner-only (B-AC4, A-AC6 c).
+
+_WRAPPER_HELP = [
+    f"scripts/{script} {args}"
+    for script in ("delegate.sh", "revoke.sh")
+    for args in ("--help", "-h", '"t" --by o --help')
+]
+_WRAPPER_RUNS = [
+    'scripts/delegate.sh "t" --by o --until 2099-01-01 --slug s',
+    "bash scripts/delegate.sh t --by o",
+    "scripts/revoke.sh order-proj-first-2026-10-22 --by o",
+    "python3 scripts/approve.py --revoke k --by o",
+]
+
+
+@pytest.mark.parametrize("project", ["plain_project", "ordered_project"])
+@pytest.mark.parametrize("command", _WRAPPER_HELP)
+def test_asking_an_order_wrapper_for_help_is_allowed(
+    command: str, project: str, request: pytest.FixtureRequest
+) -> None:
+    repo, registry = request.getfixturevalue(project)
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+@pytest.mark.parametrize("project", ["plain_project", "ordered_project"])
+@pytest.mark.parametrize("command", _WRAPPER_RUNS)
+def test_running_an_order_wrapper_stays_owner_only(
+    command: str, project: str, request: pytest.FixtureRequest
+) -> None:
+    repo, registry = request.getfixturevalue(project)
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_BLOCK, f"{command!r} ran an owner command"
+    assert "owner-only command" in result.stderr

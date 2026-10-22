@@ -430,3 +430,97 @@ def test_every_shipped_template_satisfies_the_approval_contract() -> None:
             f"{template.name} carries {len(status_lines)} canonical Status lines; "
             f"approve.py refuses anything other than exactly one"
         )
+
+
+# --- A-AC9: key revisions (ADR-4) ---------------------------------------------
+# SPEC-delegated-autonomy.md A-AC9: a same-day re-approval of a document whose
+# key the registry already holds gets `-r2`, then `-r3`; no two lines written
+# from now on share a key, inside one batch included.
+
+
+def test_a_same_day_reapproval_gets_a_revision_suffix(repo: Path) -> None:
+    key = "spec-reapproved-" + date.today().isoformat()
+    registry = repo / "registry.jsonl"
+    earlier = {"key": key, "artifact": "doc/specs/SPEC-reapproved.md", "status": "Approved",
+               "approved_by": "somchai", "approved_at": "2026-01-01T09:00:00+07:00"}
+    registry.write_text(json.dumps(earlier) + "\n" + json.dumps({**earlier, "key": f"{key}-r2"}) + "\n",
+                        encoding="utf-8")
+    path = _write(repo, "SPEC-reapproved.md", _document())
+
+    result = _run(repo, "reapproved", "--by", "somchai", registry=registry)
+
+    assert result.returncode == 0, result.stderr
+    keys = [json.loads(line)["key"] for line in registry.read_text(encoding="utf-8").splitlines()]
+    assert keys == [key, f"{key}-r2", f"{key}-r3"]
+    assert f"Approval: {key}-r3" in path.read_text(encoding="utf-8")
+
+
+def test_two_documents_with_the_same_stem_in_one_batch_get_distinct_keys(repo: Path) -> None:
+    (repo / "doc" / "qa").mkdir()
+    _write(repo, "SPEC-twin.md", _document())
+    qa = repo / "doc" / "qa" / "spec-twin.md"
+    qa.write_text(_document(), encoding="utf-8")
+    subprocess.run(["git", "add", str(qa)], cwd=repo, check=True)
+    registry = repo / "registry.jsonl"
+
+    result = _run(repo, "twin", "--by", "somchai", registry=registry)
+
+    assert result.returncode == 0, result.stderr
+    keys = [json.loads(line)["key"] for line in registry.read_text(encoding="utf-8").splitlines()]
+    assert len(keys) == 2 and len(set(keys)) == 2, keys
+
+
+def test_the_shared_writer_refuses_an_entry_missing_a_required_field(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A-AC10: one line without `artifact` makes every project's verification fail."""
+    spec = importlib.util.spec_from_file_location("approve_writer_probe", repo / "scripts" / "approve.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    registry = repo / "registry.jsonl"
+    monkeypatch.setenv("APPROVAL_LOG", str(registry))
+    entry = {"key": "revoke-k-2026-10-22", "status": "Revoked", "approved_by": "o",
+             "approved_at": "2026-10-22T09:00:00+07:00", "kind": "revocation", "revokes": "k"}
+
+    with pytest.raises(module.ApprovalError, match="artifact"):
+        module.write_entries([entry])
+    assert not registry.exists()
+
+
+# --- AM2-AC7: the owner wrappers honour --help with no write --------------------
+
+_HELP_ARGS = [("--help",), ("-h",), ("t", "--by", "o", "--help")]
+
+
+@pytest.mark.parametrize("script", ["delegate.sh", "revoke.sh"])
+@pytest.mark.parametrize("args", _HELP_ARGS, ids=["--help", "-h", "trailing --help"])
+def test_the_owner_wrappers_print_help_and_write_nothing(repo: Path, script: str, args: tuple[str, ...]) -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("approve.sh", "delegate.sh", "revoke.sh"):
+        (repo / "scripts" / name).write_text((root / "scripts" / name).read_text(encoding="utf-8"), encoding="utf-8")
+    (repo / "scripts" / "autonomy.json").write_text('{"project": "proj"}\n', encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    registry = repo / "registry.jsonl"
+    registry.write_bytes(b'{"key": "k"}\n')
+    before = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True,
+                            check=True).stdout
+
+    result = subprocess.run(
+        ["bash", str(repo / "scripts" / script), *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        # HOME under .git: the system interpreter may cache under HOME, which
+        # is not a write this test is about and must not show in git status.
+        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(repo / ".git" / "home"),
+             "APPROVAL_LOG": str(registry)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+    assert registry.read_bytes() == b'{"key": "k"}\n'
+    after = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True,
+                           check=True).stdout
+    assert after == before
