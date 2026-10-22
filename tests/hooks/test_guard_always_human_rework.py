@@ -273,3 +273,60 @@ def test_a_project_that_never_opted_in_ignores_another_projects_mandate(tmp_path
     registry = base / "registry.jsonl"
     registry.write_text(json.dumps(_MANDATE) + "\n", encoding="utf-8")
     assert _bash("git push origin main", cwd=repo, registry=registry).returncode == _EXIT_ALLOW
+
+
+# --------------------------------------------------------------------------- D10
+# QA-delegated-autonomy-B.md re-test 2, Parked 1 (backlog D10): a read-only flag
+# after `--` is an operand, not an option, so it must not exempt the call.
+
+_OWNER_NAMES = [
+    "approve.sh",
+    "approve.py",
+    "delegate.sh",
+    "revoke.sh",
+    "override.sh",
+    "away.sh",
+    "evolve.sh",
+    "release.sh",
+]
+
+
+@pytest.mark.parametrize("project", ["plain_project", "active_project"])
+@pytest.mark.parametrize("flag", ["-h", "--help", "-n"])
+@pytest.mark.parametrize("script", _OWNER_NAMES)
+def test_a_read_only_flag_after_double_dash_does_not_exempt_an_owner_script(
+    script: str, flag: str, project: str, request: pytest.FixtureRequest
+) -> None:
+    repo, registry = request.getfixturevalue(project)
+    command = f"scripts/{script} --by a -- spec-x {flag}"
+    result = _bash(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_BLOCK, f"{command!r} passed the owner rule"
+    assert "owner-only command" in result.stderr
+
+
+@pytest.mark.parametrize("project", ["plain_project", "active_project"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "scripts/approve.sh --help",
+        "scripts/approve.sh -h",
+        "scripts/approve.sh -n",
+        "scripts/approve.sh --list",
+        "scripts/approve.sh --dry-run",
+        "scripts/approve.sh --help -- spec-x",
+        "env -- scripts/approve.sh --help",
+    ],
+)
+def test_a_read_only_flag_before_double_dash_stays_allowed(
+    command: str, project: str, request: pytest.FixtureRequest
+) -> None:
+    repo, registry = request.getfixturevalue(project)
+    result = _bash(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+def test_a_double_dash_before_the_owner_script_does_not_change_the_result(plain_project: tuple[Path, Path]) -> None:
+    repo, registry = plain_project
+    result = _bash("env -- scripts/approve.sh x --by a", cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_BLOCK, "env -- scripts/approve.sh passed the owner rule"
+    assert "owner-only command" in result.stderr
