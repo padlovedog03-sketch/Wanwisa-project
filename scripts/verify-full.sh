@@ -59,8 +59,10 @@ if [ -f scripts/verify.conf ]; then
   # A conf with a syntax error stops parsing halfway: bash keeps what it read and
   # drops the rest (VERIFY_TEST_STEPS, say) without a word. So the syntax is
   # checked first. The exit status of `.` is not a load failure: a conf whose
-  # last line is `[ -n "$X" ] && VAR=…` loaded completely and returns 1.
-  if ! conf_err="$("$BASH" -n scripts/verify.conf 2>&1)"; then
+  # last line is `[ -n "$X" ] && VAR=…` loaded completely and returns 1 — and so
+  # does a conf with an array left open at EOF, for which bash 3.2's `bash -n`
+  # prints the error yet exits 0. So any output from `bash -n` is a failure too.
+  if ! conf_err="$("$BASH" -n scripts/verify.conf 2>&1)" || [ -n "$conf_err" ]; then
     echo "EXIT GATE RED — scripts/verify.conf failed to load (syntax error); no step was run"
     printf '%s\n' "$conf_err"
     exit 1

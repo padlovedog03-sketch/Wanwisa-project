@@ -38,6 +38,11 @@ from test_verify_scripts import (
     _REAL_SCAR_STEP,
     _copy,
 )
+from test_verify_handoff import NOT_OPTED_IN as _HANDOFF_NOT_OPTED_IN
+from test_verify_handoff import _conf_text as _handoff_conf_text
+from test_verify_handoff import _nothing_ran as _handoff_nothing_ran
+from test_verify_handoff import _repo as _handoff_repo
+from test_verify_handoff import _run as _handoff_run
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _EXAMPLE_CONF = _REPO_ROOT / "scripts" / "verify.conf.example"
@@ -1084,6 +1089,76 @@ def test_d2_the_fast_tier_refuses_a_conf_that_fails_to_load(tmp_path: Path) -> N
     assert result.returncode == 2, result.stdout + result.stderr
     assert "verify.conf failed to load" in result.stdout
     assert "STEP-RAN" not in result.stdout
+
+
+# An array left open at EOF: bash 3.2's `bash -n` prints the error but exits 0,
+# and sourcing it returns 1 just as a conf with a false last line does.
+_OPEN_ARRAY_CONF = ('STEPS=(\n"tests|echo STEP-RAN"\nVERIFY_TEST_STEPS="tests"\n'
+                    'VERIFY_COLLECT_CMD="echo 5"\n')
+
+
+def test_d2_the_full_tier_refuses_a_conf_with_an_array_open_at_eof(tmp_path: Path) -> None:
+    probe = _full(tmp_path, _OPEN_ARRAY_CONF)
+
+    result = _run(probe)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert ("EXIT GATE RED — scripts/verify.conf failed to load (syntax error); "
+            "no step was run") in result.stdout.splitlines(), result.stdout
+    assert "EXIT GATE GREEN" not in result.stdout
+    assert "STEP-RAN" not in result.stdout
+
+
+def test_d2_the_fast_tier_refuses_a_conf_with_an_array_open_at_eof(tmp_path: Path) -> None:
+    probe = _fast(tmp_path, "LINT=(echo STEP-RAN)\nTEST=(echo STEP-RAN)\n" + _OPEN_ARRAY_CONF)
+
+    result = _run(probe, "x.py")
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert ("FAST VERIFY REFUSED — scripts/verify.conf failed to load (syntax error)"
+            in result.stdout.splitlines()), result.stdout
+    assert "STEP-RAN" not in result.stdout
+
+
+def test_d2_the_handoff_tier_refuses_a_conf_with_an_array_open_at_eof(tmp_path: Path) -> None:
+    # Every setting the tier needs comes before the open array, so a partial load
+    # would opt in and run.
+    probe = _handoff_repo(tmp_path, _handoff_conf_text() + _OPEN_ARRAY_CONF)
+
+    status = _handoff_run(probe, "--status")
+    result = _handoff_run(probe)
+
+    assert (status.returncode, status.stdout) == (0, "not opted in\n"), status.stdout
+    assert "scripts/verify.conf failed to load (syntax error)" in status.stderr
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert _last(result) == ("HANDOFF TIER NOT CONFIGURED — scripts/verify.conf failed to load "
+                             "(syntax error); scripts/verify-full.sh before every handoff "
+                             "stays in force"), result.stdout
+    assert _handoff_nothing_ran(tmp_path)
+
+
+def test_d2_the_handoff_tier_still_loads_a_conf_whose_last_line_is_false(tmp_path: Path) -> None:
+    probe = _handoff_repo(tmp_path, _handoff_conf_text()
+                          + '[ -n "${QA_NEVER_SET_FLAG:-}" ] && VERIFY_ALLOWED_FILTERS=(x)\n')
+
+    status = _handoff_run(probe, "--status")
+    result = _handoff_run(probe)
+
+    assert (status.returncode, status.stdout, status.stderr) == (0, "opted in\n", "")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "failed to load" not in result.stdout
+
+
+def test_d2_the_handoff_tier_reads_the_example_conf_as_loaded(tmp_path: Path) -> None:
+    example = _EXAMPLE_CONF.read_text(encoding="utf-8")
+    probe = _handoff_repo(tmp_path, example)
+
+    status = _handoff_run(probe, "--status")
+    result = _handoff_run(probe)
+
+    assert (status.returncode, status.stdout, status.stderr) == (0, "not opted in\n", "")
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert _last(result) == _HANDOFF_NOT_OPTED_IN
 
 
 def test_d3_two_test_steps_with_one_label_are_refused_before_any_step_runs(
