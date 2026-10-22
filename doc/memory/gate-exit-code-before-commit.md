@@ -5,7 +5,7 @@ type: feedback
 status: active
 date: 2026-10-20
 source: coordinator slip 2026-10-20 — `scripts/verify-full.sh | grep … && git commit` committed e6b4daa while the gate printed EXIT GATE RED (ci gate 3: a spec quoted a bootstrap placeholder literal); fixed in 29f0466
-mechanism: none — candidate mechanism (pre-commit refuses when the newest .verify record for the staged tree is RED) is parked in doc/tasks/backlog.md
+mechanism: .githooks/pre-commit — refuses when the newest full/handoff .verify record for the staged tree is RED, or when the index holds a placeholder CI gate 3 would fail on (tests/framework/test_pre_commit_verify_record.py, tests/framework/test_pre_commit_placeholders.py); limit: a missing record warns only, placeholder literals block
 ---
 
 The commit must depend on the gate's own exit code: run `scripts/verify-full.sh > <log>` and commit only when its

@@ -13,6 +13,8 @@ in the normal loop. stdlib only, Python 3.9+.
                 (full tier) or the banner itself (fast and handoff tiers)
   diff-paths    the handoff tier's selection: the diff against a base, plus the
                 paths the agent named (scripts/verify-handoff.sh)
+  commit-check  .githooks/pre-commit: exit 1 when the newest full/handoff record
+                for the staged tree (--tree, from `git write-tree`) is RED
 
 Why it exists: a gate that prints GREEN over a run that executed nothing, or
 executed a filtered subset, is the failure this framework was built to stop.
@@ -946,6 +948,74 @@ def finalize_handoff(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- commit-check (SPEC-verify-tiers-merge-gate-am3-commit-on-red) ------------
+# Read-only. Only a RED on exactly the staged tree refuses (exit 1); missing or
+# odd evidence warns (exit 0); a crash is exit 2, which the hook also refuses.
+
+_RECORD_CAP = 1 << 20
+_VERDICTS = ("GREEN", "INCOMPLETE", "RED", "OK", "EMPTY")
+_NO_RECORD = ("WARN no gate record for the staged tree — run scripts/verify-full.sh "
+              "(scripts/verify-handoff.sh when opted in) before committing; "
+              "CI runs the gate regardless")
+
+
+def _readable_record(path: Path) -> Optional[dict]:
+    """The record at `path` if it has the fields commit-check relies on, else None."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        with path.open("rb") as handle:
+            raw = handle.read(_RECORD_CAP + 1)
+        if len(raw) > _RECORD_CAP:
+            return None
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    tree = data.get("tree")
+    if (not isinstance(data.get("verdict"), str) or data["verdict"] not in _VERDICTS
+            or not isinstance(data.get("ended_at"), str) or not isinstance(tree, dict)
+            or any(k not in tree or not (tree[k] is None or isinstance(tree[k], str))
+                   for k in ("before", "after"))):
+        return None
+    return data
+
+
+def cmd_commit_check(args: argparse.Namespace) -> int:
+    runs = Path(args.runs)
+    if runs.is_symlink() or not runs.is_dir():
+        print(_NO_RECORD)
+        return 0
+    shown = lambda name: _escape(os.path.join(args.runs, name, "record.json"))  # noqa: E731
+    matches: List[Tuple[str, str, str]] = []  # (ended_at, name, verdict)
+    unreadable: List[str] = []
+    for run in sorted(runs.iterdir(), key=lambda p: p.name):
+        if not run.is_symlink() and not run.is_dir():
+            continue
+        if not run.is_symlink() and not os.path.lexists(run / "record.json"):
+            continue  # an aborted or TODO run never wrote one (F11)
+        record = None if run.is_symlink() else _readable_record(run / "record.json")
+        if record is None:
+            unreadable.append(run.name)
+        elif (record.get("tier") in ("full", "handoff")
+              and record["tree"]["before"] == record["tree"]["after"] == args.tree):
+            matches.append((record["ended_at"], run.name, record["verdict"]))
+    newest = max(matches) if matches else None
+    if newest and newest[2] == "RED":
+        print("FAIL verify record — the newest gate run for the staged tree is RED (%s)"
+              % shown(newest[1]))
+        return 1
+    newer_unreadable = [n for n in unreadable if newest is None or n > newest[1]]
+    for name in newer_unreadable:
+        print("WARN unreadable gate record ignored: %s" % shown(name))
+    if newest and newest[2] != "EMPTY" and not newer_unreadable:
+        print("verify record: %s for the staged tree (%s)" % (newest[2], shown(newest[1])))
+    else:
+        print(_NO_RECORD)
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -979,7 +1049,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     fin.add_argument("--conf-present", action="store_true")
     fin.add_argument("--allow", action="append", default=[])
 
+    cc = sub.add_parser("commit-check")
+    cc.add_argument("--tree", required=True)
+    cc.add_argument("--runs", default=".verify/runs")
+
     args = parser.parse_args(argv)
+    if args.command == "commit-check":
+        try:
+            return cmd_commit_check(args)
+        except Exception as exc:  # a crash must never read as RED (1) or a pass (0)
+            print("commit-check: internal error: %s" % type(exc).__name__, file=sys.stderr)
+            return 2
     if args.command == "check-banned":
         return cmd_check_banned(args)
     if args.command == "tree-hash":
