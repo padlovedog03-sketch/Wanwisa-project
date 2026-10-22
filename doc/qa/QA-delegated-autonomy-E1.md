@@ -5,7 +5,9 @@ Owner: qa
 Upstream: doc/specs/SPEC-delegated-autonomy.md
 Date: 2026-10-20
 
-## Verdict: FAIL (re-test 2, 2026-10-22)
+## Verdict: PASS (re-test 3, 2026-10-22)
+
+Re-test 3 on the uncommitted fix in worktree `agent-a4f98650319afa539` (on c041dbb; see the section at the end): all 4 criteria pass. Defect 2 is closed: a non-bugfix QA prompt must name the spec under test on a `Spec:` or `Slice:` line, and the gate no longer guesses it from prose. The PASS covers that working tree only. It holds for the branch once those 5 files are committed unchanged.
 
 Re-test 2 at HEAD 0fd71b6 (see the section at the end): E-AC1, E-AC3 and E-AC4 still pass. Defect 1 as first reported is closed by ed5c7e8. E-AC2 still fails on the same root with the word order swapped (Defect 2): when the prompt names the dependency's spec first and has no `Spec:` line, the dependency's review on the `Review:` line opens QA for a spec that has no review.
 
@@ -91,8 +93,8 @@ The baseline run before QA added its test was:
 
 | Severity | Description | Where | Suggested owner | Rework cause |
 |---|---|---|---|---|
-| Medium | **A dependency's review opens QA for a spec that has no review.** In the named-review path, a REVIEW is accepted when its `Upstream:` names *any* SPEC in the prompt. Repro: the prompt `Verify doc/specs/SPEC-a.md. It builds on SPEC-b.md, already reviewed in REVIEW-b.md.` with only `REVIEW-b.md` (PASS, Upstream SPEC-b.md) gives exit 0. Commit f672e3f says it closed exactly this case, so this is a gate reporting green falsely. Same root, two other faces. First, when the prompt names no SPEC, any named PASS review opens the gate. Second, the derived path blocks a legitimate QA: `QA SPEC-a.md (builds on SPEC-b.md)` with a PASS `REVIEW-a.md` is blocked on `REVIEW-b.md: not found`. Both paths need one consistent rule for which spec is under QA. | .claude/hooks/guard_agent_spawn.py:161-178 (`_check_review`), :154-157 (Upstream check) | ai-engineer | missed-ac |
-| Medium | **Re-test 2: a dependency's review still opens QA when the dependency's spec is named first.** Closed for Defect 1's word order, open for the reverse. `_spec_under_test` falls back to the first SPEC in the prompt when there is no `Slice:` or `Spec:` line, so the Upstream check compares the dependency's review with the dependency's own spec. Repro at HEAD 0fd71b6, with `REVIEW-zqb.md` (PASS, Upstream `doc/specs/SPEC-zqb.md`, distinct run IDs) and no review at all for SPEC-zqa: the prompt `QA the change. It builds on SPEC-zqb.md; the work under test is SPEC-zqa.md.` plus `Review: doc/qa/REVIEW-zqb.md` gives exit 0. The same prompt with SPEC-zqa named first gives exit 2. Nothing makes a QA brief carry a `Spec:` line: AGENTS.md §5 requires only the `Review:` line, and `coordinator_lint.py` has no `Spec:` rule. | .claude/hooks/guard_agent_spawn.py, `_spec_under_test` (the "else the first SPEC the prompt names" fallback) | ai-engineer | missed-ac |
+| Medium | Closed in re-test 2. **A dependency's review opens QA for a spec that has no review.** In the named-review path, a REVIEW is accepted when its `Upstream:` names *any* SPEC in the prompt. Repro: the prompt `Verify doc/specs/SPEC-a.md. It builds on SPEC-b.md, already reviewed in REVIEW-b.md.` with only `REVIEW-b.md` (PASS, Upstream SPEC-b.md) gives exit 0. Commit f672e3f says it closed exactly this case, so this is a gate reporting green falsely. Same root, two other faces. First, when the prompt names no SPEC, any named PASS review opens the gate. Second, the derived path blocks a legitimate QA: `QA SPEC-a.md (builds on SPEC-b.md)` with a PASS `REVIEW-a.md` is blocked on `REVIEW-b.md: not found`. Both paths need one consistent rule for which spec is under QA. | .claude/hooks/guard_agent_spawn.py:161-178 (`_check_review`), :154-157 (Upstream check) | ai-engineer | missed-ac |
+| Medium | Closed in re-test 3. **Re-test 2: a dependency's review still opens QA when the dependency's spec is named first.** Closed for Defect 1's word order, open for the reverse. `_spec_under_test` falls back to the first SPEC in the prompt when there is no `Slice:` or `Spec:` line, so the Upstream check compares the dependency's review with the dependency's own spec. Repro at HEAD 0fd71b6, with `REVIEW-zqb.md` (PASS, Upstream `doc/specs/SPEC-zqb.md`, distinct run IDs) and no review at all for SPEC-zqa: the prompt `QA the change. It builds on SPEC-zqb.md; the work under test is SPEC-zqa.md.` plus `Review: doc/qa/REVIEW-zqb.md` gives exit 0. The same prompt with SPEC-zqa named first gives exit 2. Nothing makes a QA brief carry a `Spec:` line: AGENTS.md §5 requires only the `Review:` line, and `coordinator_lint.py` has no `Spec:` rule. | .claude/hooks/guard_agent_spawn.py, `_spec_under_test` (the "else the first SPEC the prompt names" fallback) | ai-engineer | missed-ac |
 
 ## Engineer's choices, judged
 
@@ -144,6 +146,7 @@ The baseline run before QA added its test was:
 
 - **2026-10-20 — drafted.** By qa, from SPEC-delegated-autonomy E-AC1–E-AC4 and commits f205c0a and f672e3f. The verdict comes from runs made in this QA session.
 - **2026-10-22 — re-test 2.** By qa, at HEAD 0fd71b6 on `feat/top3-tiers-mechanisms-deny`, after fix ed5c7e8 (merged in a60d8f2) and its PASS review doc/qa/REVIEW-delegated-autonomy-E1.md. The verdict stays FAIL on E-AC2 (Defect 2). Status stays In Review.
+- **2026-10-22 — re-test 3.** By qa, on the uncommitted 5-file fix in worktree `agent-a4f98650319afa539` (base c041dbb), after its PASS re-review (commit 0d92200). Verdict PASS, 4 of 4. Status stays In Review for the owner's approval.
 
 ## Re-test 2
 
@@ -203,3 +206,58 @@ Every planted review has a PASS verdict and distinct run IDs unless stated. Ever
   - the named review is not tied to the slug;
   - a stale bugfix review opens QA;
   - a malformed payload crashes the hook with exit 1, which does not block.
+
+## Re-test 3
+
+Date: 2026-10-22. Scope: the uncommitted fix in worktree `.claude/worktrees/agent-a4f98650319afa539`, base c041dbb. It changes 5 files: `.claude/hooks/guard_agent_spawn.py`, `.claude/agents/reviewer.md`, `AGENTS.md`, `tests/hooks/test_guard_agent_spawn.py` and `tests/hooks/test_regression_guard_agent_spawn_review.py`. Review read: doc/qa/REVIEW-delegated-autonomy-E1.md (re-review PASS, commit 0d92200). Probes ran on a copy of that working tree in the scratchpad, with planted `doc/qa/` files. Exit 2 is block, 0 is allow.
+
+The fix: `_spec_under_test` returns only the SPEC on the first `Spec:` or `Slice:` line that names one. The first-mention fallback is gone. A non-bugfix QA prompt without such a line is refused with one line asking for `Spec: doc/specs/SPEC-<slug>.md`. AGENTS.md §5 tier 1 and `reviewer.md` now say the QA brief carries that line.
+
+Provenance: the brief is a Tier 1 re-test under an approved spec. It confirms Tier 1 pre-approval, not a human approval of this implementation, and QA saw none.
+
+| # | Verdict | Evidence (run in this re-test, on the worktree) |
+|---|---|---|
+| E-AC1 | PASS | `pytest tests/framework/test_learning_loop.py` → `17 passed`. `python3 scripts/learning_loop.py --window 28` → EXIT=0, with 4 stubs ending `owner approval required (AH5)`. |
+| E-AC2 | PASS | `pytest tests/hooks/test_guard_agent_spawn.py` → `162 passed`. `pytest tests/hooks/test_regression_guard_agent_spawn_review.py` → `19 passed`. Red-first: the same two files against the c041dbb hook → `4 failed, 177 passed`, and the 4 failures are the new repro test, the no-`Spec:`-line refusal for `qa` and `frontend-qa`, and the slice-without-spec test. Probes are below. |
+| E-AC3 | PASS | `pytest tests/framework/test_doc_contracts.py -rs` → `62 passed, 1 skipped`. The skip is `test_doc_contracts.py:193: agent_time.REWORK_CAUSES is the source now`, which is not an E-AC3 contract. The tier rows of AGENTS.md §5 still show `engineer` → `reviewer` → `qa`. |
+| E-AC4 | PASS | `pytest tests/coordinator/test_coordinator_lint.py` → `86 passed`. |
+
+Counts: 4 PASS, 0 FAIL, out of 4 criteria.
+
+### E-AC2 probes on the fix
+
+`REVIEW-zqb.md` is a PASS review with Upstream `doc/specs/SPEC-zqb.md` and distinct run IDs. SPEC-zqa has no review unless stated. Every prompt has a filled Tier and Files line.
+
+- **The re-test 2 repro is closed.** `QA the change. It builds on SPEC-zqb.md; the work under test is SPEC-zqa.md.` plus `Review: doc/qa/REVIEW-zqb.md` → **2**, for both `qa` and `frontend-qa`. The message asks for a `Spec:` line.
+- **These stay shut (2):**
+  - the spec under test named first in prose, with no `Spec:` line;
+  - a `Spec:` line for SPEC-zqa with the dependency's review, whether the `Spec:` line comes before or after the `Review:` line;
+  - a `Spec:` line naming SPEC-zqa then SPEC-zqb, with the dependency's review;
+  - a `Slice:` line with no SPEC on it and the dependency named in prose;
+  - a `Spec:` line with no SPEC on it and the dependency named in prose;
+  - a lower-case `spec:` line;
+  - a missing review, a FAIL review, and run IDs `r1` and ` R1 `;
+  - `NO_SPEC_BUGFIX:` work naming a non-bugfix review;
+  - a correct PASS review with the spec only in prose. This was allowed before the fix; it is now refused with a one-line message saying what to add.
+- **These open, as expected (0):**
+  - a `Spec:` line for SPEC-zqa with a PASS `REVIEW-zqa.md`, for `qa` and `frontend-qa`, with a dependency named in prose;
+  - a `Slice:` line carrying the SPEC path;
+  - bold, bulleted `Spec:` and `Review:` lines;
+  - a `Spec:` line with no SPEC followed by a `Slice:` line with one;
+  - `NO_SPEC_BUGFIX:` work with a bugfix review and no `Spec:` line;
+  - `reviewer`, which is ungated;
+  - this re-test's own brief shape.
+
+### Exit gate
+
+- `scripts/verify-handoff.sh --status` → `not opted in`, so the verdict command is `scripts/verify-full.sh`.
+- `python3 -m pytest tests -q -p no:cacheprovider` on the worktree → `1884 passed, 1 skipped`, exit 0.
+- `scripts/verify-full.sh` on the worktree → exit 0. Steps: hooks `1308 passed`, ci-examples `30 passed`, scar-forge OK, coordinator `155 passed`, framework OK. Banner: `EXIT GATE INCOMPLETE — 3 step(s) not configured: lint format tests`. That is the repo's standing state, not a finding of this re-test.
+- Both runs were on the worktree before this report was edited. This report is outside that tree.
+
+### Parked (re-test 3)
+
+- **LIMIT: a `Spec:` line that names the wrong spec opens the gate for the wrong work.** `Spec: doc/specs/SPEC-zqb.md` plus `Review: doc/qa/REVIEW-zqb.md` → 0. The gate trusts the brief's explicit subject. The threat model covers mistakes, not fraud. An explicit wrong `Spec:` line is a visible statement that a reader can check, unlike the prose guess that was removed.
+- **Older QA briefs without a `Spec:` line are now refused.** This includes the shape that re-test 2 listed as open. The refusal is one actionable line, and AGENTS.md §5 tier 1 now names the line. It is a usability cost, not a defect.
+- **AGENTS.md §5 names the `Spec:` line only in the tier 1 row.** The tier 2 row's QA gate cell does not, yet tier 2 QA briefs are refused without it too. This sits outside E-AC1–E-AC4.
+- **Carried from re-test 2:** a `Review:` line inside a code fence; a review whose Upstream names two specs; and the items parked in doc/qa/REVIEW-delegated-autonomy-E1.md.
