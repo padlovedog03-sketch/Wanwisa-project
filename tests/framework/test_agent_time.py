@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -780,3 +781,412 @@ def test_adapter_a_declares_the_size_class_supported() -> None:
 def test_adapter_b_declares_the_size_class_unsupported() -> None:
     row = _size_row("ข")
     assert "meter size class (R41)" in row and "unsupported" in row
+
+
+# ---- The scorecard (SPEC-jarvis-coordinator-inc2-scorecard.md, SC-AC*) ------------
+#
+# `--scorecard` prints M1–M7 for a window from the same reader events as the time
+# report. It is a report, so the tests below hold it to three things: the counting
+# rules the spec fixes (exchanges, distinct turn ends, the Tier line grammar, report
+# slugs, brief field lines), no misleading zero on odd or empty input, and no
+# transcript text in the output.
+
+_SC_FIXTURE = _FIXTURES / "scorecard"
+_SC_WINDOW = ("--since", "2026-10-20", "--until", "2026-10-21")
+_T0 = "2026-10-20T10:00:00+00:00"
+
+
+def _owner(t: int, text: str = "Please do it.") -> dict:
+    return {"t": t, "kind": "inbound", "owner": True, "text": text}
+
+
+def _reply(t: int, mid: object, text: str = "", end: bool = True) -> dict:
+    return {"t": t, "kind": "model", "message_id": mid, "text": text, "turn_end": end}
+
+
+def _result(t: int) -> dict:
+    return {"t": t, "kind": "tool_result", "tool_id": "T"}
+
+
+def _edit(t: int, *paths: str) -> dict:
+    return {"t": t, "kind": "tool_call", "tool_id": f"E{t}", "tool_kind": "edit", "paths": list(paths)}
+
+
+def _sc_meter(source: Path, memory_dir: Optional[Path], *extra: str) -> subprocess.CompletedProcess:
+    args = ["--reader", str(_STUB_READER), "--dir", str(source), "--scorecard", *extra]
+    if memory_dir is not None:
+        args += ["--memory-dir", str(memory_dir)]
+    return _meter(*args)
+
+
+def _sc_lines(tmp_path: Path, runs: dict, *extra: str, t0: str = _T0) -> list:
+    """Write neutral runs {name: (agent_type, events)} and return the scorecard's lines."""
+    source = tmp_path / "runs"
+    source.mkdir(exist_ok=True)
+    for name, (agent_type, events) in runs.items():
+        _neutral_run(source / f"{name}.json", agent_type, events, t0)
+    memory = tmp_path / "memory"
+    memory.mkdir(exist_ok=True)
+    result = _sc_meter(source, memory, *(extra or _SC_WINDOW))
+    assert result.returncode == 0
+    assert result.stderr == ""
+    return result.stdout.splitlines()
+
+
+def _in_process(tmp_path: Path, runs: dict) -> list:
+    """The scorecard in-process over neutral runs, so a monkeypatched helper takes effect."""
+    stub = agent_time.load_reader(_STUB_READER)
+    built = [
+        stub.run_from_dict({"agent_type": agent_type, "t0": _T0, "events": events})
+        for agent_type, events in runs.values()
+    ]
+    since, until = agent_time.parse_since("2026-10-20"), agent_time.parse_since("2026-10-21")
+    return agent_time.scorecard(built, since, until, tmp_path, "neutral_reader.py").splitlines()
+
+
+def _block(lines: list, prefix: str) -> list:
+    """The lines of one metric: its header line plus the indented lines under it."""
+    start = next(i for i, line in enumerate(lines) if line.startswith(prefix))
+    end = next((i for i in range(start + 1, len(lines)) if not lines[i].startswith("  ")), len(lines))
+    return lines[start:end]
+
+
+# ---- SC-AC1: one block per metric, in order, and the scorecard runs alone ----
+
+
+def test_the_scorecard_prints_m1_to_m7_and_the_owner_line_in_order(tmp_path: Path) -> None:
+    result = _sc_meter(_SC_FIXTURE, tmp_path, *_SC_WINDOW)
+    assert result.returncode == 0
+    lines = result.stdout.splitlines()
+    starts = [
+        next(i for i, line in enumerate(lines) if line.startswith(prefix))
+        for prefix in ("M1 ", "M2 ", "M3 ", "M4 ", "M5 ", "M6 ", "M7 ", "owner messages per day (UTC): ")
+    ]
+    assert starts == sorted(starts), lines
+    assert lines[0].startswith("scorecard — window [2026-10-20T00:00:00Z, 2026-10-21T00:00:00Z)"), lines
+    assert "M5 new-user setup time: not measured by this command (timed by hand, R12)" in lines
+    assert "  tier 0: 1 exchanges · 1 extra · mean 1.00 · 0 with none" in lines, lines
+    assert "  tier 1: no exchanges" in lines
+    assert "  untiered: 1 exchanges · 0 extra · mean 0.00 · 1 with none" in lines
+    assert "  alpha: review 1 · QA 1" in lines, lines
+    assert "M6 role-agent briefs with a Tier: line and a Files: line: 1 of 2" in lines, lines
+    assert "owner messages per day (UTC): 2026-10-20 2" in lines
+    # Nothing from the time report.
+    assert not any(line.startswith(("agent-time —", "size classes", "probe runs", "rework share")) for line in lines)
+    assert any(line.startswith("method: ") for line in lines) and any(line.startswith("limits: ") for line in lines)
+
+
+@pytest.mark.parametrize(
+    "other",
+    [["--rework"], ["--targets", "small=15,medium=25,large=50"], ["--min-runs", "3"], ["--include-probes"]],
+)
+def test_the_scorecard_runs_alone(tmp_path: Path, other: list) -> None:
+    result = _sc_meter(_SC_FIXTURE, tmp_path, *other)
+    assert result.returncode == 0
+    assert result.stdout == "agent-time: error: --scorecard runs alone\n"
+
+
+def test_until_needs_the_scorecard(tmp_path: Path) -> None:
+    result = _meter("--reader", str(_STUB_READER), "--dir", str(_SC_FIXTURE), "--until", "2026-10-21")
+    assert result.returncode == 0
+    assert result.stdout == "agent-time: error: --until needs --scorecard\n"
+
+
+def test_an_empty_directory_prints_no_for_every_metric_never_zero(tmp_path: Path) -> None:
+    """SC-AC1 hostile: with nothing in the window, M1, M3, M4 and M6 say "no …", never 0."""
+    lines = _sc_lines(tmp_path, {})
+    for prefix in ("M1 ", "M3 ", "M4 ", "M6 "):
+        block = _block(lines, prefix)
+        assert not any(re.search(r"\b0\b", line.split(":", 1)[-1]) for line in block), block  # past "tier 0:"
+        assert any(re.search(r"\bno\b", line) for line in block), block
+    assert "owner messages per day (UTC): none" in lines
+
+
+def test_the_scorecard_with_no_reader_says_unsupported(tmp_path: Path) -> None:
+    result = _meter("--dir", str(_SC_FIXTURE), "--scorecard")
+    assert result.returncode == 0
+    assert "unsupported" in result.stdout
+    assert "M1" not in result.stdout
+
+
+# ---- SC-AC3 (core): turn ends are distinct ids ---------------------------------------
+
+
+def _two_line_reply() -> dict:
+    return {
+        "main": (
+            "(main thread)",
+            [
+                _owner(0),
+                _reply(5, "r1"),
+                _reply(6, "r1"),
+                {"t": 60, "kind": "notification", "job_ids": ["b1"]},
+                _reply(65, "r2"),
+            ],
+        )
+    }
+
+
+def test_one_reply_over_two_lines_is_one_turn_end(tmp_path: Path) -> None:
+    """SC-AC3 (RED-FIRST): 2 turn ends and so 1 extra, not 3 and 2."""
+    lines = _sc_lines(tmp_path, _two_line_reply())
+    assert "  untiered: 1 exchanges · 1 extra · mean 1.00 · 0 with none" in lines, lines
+
+
+def test_counting_turn_ends_per_line_is_caught(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SC-AC3 planted mistake: counting each turn-end line gives 2 extra."""
+    monkeypatch.setattr(agent_time, "count_turn_ends", lambda events: sum(1 for e in events if e.turn_end))
+    lines = _in_process(tmp_path, _two_line_reply())
+    assert "  untiered: 1 exchanges · 2 extra · mean 2.00 · 0 with none" in lines, lines
+
+
+def test_turn_ends_with_no_id_count_one_each(tmp_path: Path) -> None:
+    runs = {"main": ("(main thread)", [_owner(0), _reply(5, None), _reply(6, None), _reply(7, "x", end=False)])}
+    assert "  untiered: 1 exchanges · 1 extra · mean 1.00 · 0 with none" in _sc_lines(tmp_path, runs)
+
+
+# ---- SC-AC4: the Tier line grammar ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("owner_text", "reply_text", "tier"),
+    [
+        ("Please.", "Tier: 1 — x", "tier 1"),
+        ("Please.", "- **Tier:** 2 — y", "tier 2"),
+        ("Please.", "Please state the Tier: 0 line", "untiered"),
+        ("Please.", "No tier here.", "untiered"),
+        ("Tier: 1 — said by the owner", "No tier here.", "untiered"),
+        ("Please.", "Tier: 3", "untiered"),
+        ("Please.", "Tier：0", "tier 0"),
+        ("Please.", "1. Tier: 2 — numbered", "tier 2"),
+        ("Please.", "Intro line.\n  * **Tier**: 0", "tier 0"),
+    ],
+)
+def test_the_first_tier_line_in_jarvis_text_decides_the_tier(
+    tmp_path: Path, owner_text: str, reply_text: str, tier: str
+) -> None:
+    runs = {"main": ("(main thread)", [_owner(0, owner_text), _reply(5, "m1", reply_text)])}
+    lines = _sc_lines(tmp_path, runs)
+    assert f"  {tier}: 1 exchanges · 0 extra · mean 0.00 · 1 with none" in lines, lines
+
+
+def test_a_later_tier_line_does_not_change_the_first(tmp_path: Path) -> None:
+    runs = {
+        "main": (
+            "(main thread)",
+            [_owner(0), _reply(5, "m1", "Tier: 1 — first", end=False), _reply(9, "m2", "Tier: 2 — later")],
+        )
+    }
+    lines = _sc_lines(tmp_path, runs)
+    assert "  tier 1: 1 exchanges · 0 extra · mean 0.00 · 1 with none" in lines, lines
+    assert "  tier 2: no exchanges" in lines
+
+
+# ---- SC-AC5: the window -------------------------------------------------------------
+
+_T = "2026-10-20T12:00:00+00:00"
+
+
+def test_only_exchanges_whose_owner_message_is_in_the_window_count(tmp_path: Path) -> None:
+    """Owner messages at T−1h, T and T+1h; window [T, T+30m)."""
+    runs = {
+        # T−1h's reply falls inside the window, but its owner message does not.
+        "earlier": ("(main thread)", [_owner(-3600), _reply(300, "e1")]),
+        # T: one reply inside, one at T+40m (ignored), then T+1h's owner message.
+        "main": ("(main thread)", [_owner(0), _reply(600, "m1"), _reply(2400, "m2"), _owner(3600), _reply(3700, "m3")]),
+        # A reviewer run that started before the window and edits inside it.
+        "reviewer": (
+            "reviewer",
+            [{"t": -600, "kind": "inbound", "text": "Tier: 1\nFiles: a"}, _edit(600, "doc/qa/REVIEW-z.md")],
+        ),
+    }
+    lines = _sc_lines(tmp_path, runs, "--since", "2026-10-20T12:00:00Z", "--until", "2026-10-20T12:30:00Z", t0=_T)
+    assert "  untiered: 1 exchanges · 0 extra · mean 0.00 · 1 with none" in lines, lines
+    assert "owner messages per day (UTC): 2026-10-20 1" in lines
+    assert not any("REVIEW" in line or " z:" in line for line in lines)
+    assert "M6 role-agent briefs with a Tier: line and a Files: line: no role-agent briefs" in lines, lines
+    assert any(line.startswith("M3 ") and "no review or QA runs" in line for line in lines), lines
+
+
+@pytest.mark.parametrize(
+    "window",
+    [
+        ["--since", "2026-10-21", "--until", "2026-10-21"],
+        ["--since", "2026-10-22", "--until", "2026-10-21"],
+        ["--until", "2026-10-22 09:00"],
+        ["--until", "2026-10-22T09:00:00+07:00"],
+        ["--until", "2026/10/22"],
+        ["--since", "2026-10-22 09:00"],
+        ["--since", "2026-10-22T09:00:00+07:00"],
+    ],
+)
+def test_a_bad_window_is_one_error_line_and_exit_0(window: list) -> None:
+    result = _meter("--reader", str(_STUB_READER), "--dir", str(_SC_FIXTURE), "--scorecard", *window)
+    assert result.returncode == 0
+    assert re.fullmatch(r"agent-time: error: [^\n]*\n", result.stdout), result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_since_takes_a_time_of_day_in_utc() -> None:
+    assert agent_time.parse_since("2026-10-21T02:03:54Z") == dt.datetime(2026, 10, 21, 2, 3, 54, tzinfo=dt.timezone.utc)
+
+
+# ---- SC-AC12: M4, minutes to the first reply after a tool result ----------------------
+
+
+def test_m4_counts_the_first_turn_end_after_a_tool_result(tmp_path: Path) -> None:
+    runs = {
+        "a": ("(main thread)", [_owner(0), _result(30), _reply(90, "a1", "Tier: 0")]),
+        "b": ("(main thread)", [_owner(1000), _reply(1010, "b1", "Tier: 1"), _result(1020), _reply(1060, "b2")]),
+        "c": ("(main thread)", [_owner(2000), _reply(2010, "c1", "Tier: 2")]),
+        "d": ("(main thread)", [_result(2990), _owner(3000), _reply(3010, "d1", "Tier: 2")]),
+    }
+    block = _block(_sc_lines(tmp_path, runs), "M4 ")
+    assert "  tier 0: median 1.5 min (n 1) · no result: 0" in block, block
+    assert "  tier 1: median 1.0 min (n 1) · no result: 0" in block, block
+    assert "  tier 2: no result: 2" in block, block
+    assert "  untiered: no exchanges" in block, block
+
+
+# ---- SC-AC6: M3, review and QA runs per report slug ----------------------------------
+
+
+def _review(name: str, *paths: str, agent_type: str = "reviewer") -> tuple:
+    events = [{"t": 0, "kind": "inbound", "text": "Review."}] + [_edit(10 + i, p) for i, p in enumerate(paths)]
+    return name, (agent_type, events)
+
+
+def test_m3_counts_runs_per_slug_once_each(tmp_path: Path) -> None:
+    runs = dict(
+        [
+            _review("r1", "/w/.wt/agent-x/doc/qa/REVIEW-a.md", "/w/.wt/agent-x/doc/qa/REVIEW-a.md"),
+            _review("r2", "doc/qa/REVIEW-a.md"),
+            _review("q1", "doc/qa/QA-a.md"),
+            _review("r3"),
+            _review("e1", "doc/qa/QA-a.md", agent_type="ai-engineer"),
+        ]
+    )
+    lines = _sc_lines(tmp_path, runs)
+    assert "  a: review 2 · QA 1" in lines, lines
+    assert any(line.startswith("M3 ") and line.endswith("· 1 run wrote no report") for line in lines), lines
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["doc/qa/REVIEW-.md", "doc/qa/REVIEW-a.md.bak", "doc/qa/REVIEW-a\n.md", "notes/REVIEW-a.md", "xdoc/qa/REVIEW-a.md"],
+)
+def test_a_path_that_is_not_a_report_is_no_report(tmp_path: Path, path: str) -> None:
+    lines = _sc_lines(tmp_path, dict([_review("r", path)]))
+    assert any(line.startswith("M3 ") and line.endswith("· 1 run wrote no report") for line in lines), lines
+    assert not any(re.match(r"  \S.*: review \d+ · QA \d+$", line) for line in lines), lines
+
+
+@pytest.mark.parametrize("slug", ["s" * 65, "a b", "a/b"])
+def test_a_slug_that_is_not_a_label_is_unprintable(tmp_path: Path, slug: str) -> None:
+    lines = _sc_lines(tmp_path, dict([_review("r", f"doc/qa/REVIEW-{slug}.md")]))
+    assert "  (unprintable label): review 1 · QA 0" in lines, lines
+    assert not any(slug in line for line in lines)
+
+
+def test_a_pathless_edit_is_no_report_and_no_crash(tmp_path: Path) -> None:
+    events = [{"t": 0, "kind": "inbound", "text": "Review."}, {"t": 5, "kind": "tool_call", "tool_kind": "edit", "paths": []}]
+    lines = _sc_lines(tmp_path, {"r": ("qa", events)})
+    assert any(line.startswith("M3 ") and line.endswith("· 1 run wrote no report") for line in lines), lines
+
+
+# ---- SC-AC7: M6, briefs carrying a Tier: and a Files: line -----------------------------
+
+
+def _brief(text: Optional[str], agent_type: str) -> tuple:
+    events = [{"t": 0, "kind": "inbound", "text": text}] if text is not None else []
+    return agent_type, events + [{"t": 5, "kind": "model", "message_id": "m"}]
+
+
+def test_m6_counts_briefs_with_both_field_lines(tmp_path: Path) -> None:
+    runs = {
+        "1": _brief("Tier: 1 — x\nFiles: a", "ai-engineer"),
+        "2": _brief("- **Tier:** 2\n- Files:\n  - a", "reviewer"),
+        "3": _brief("Files: a", "qa"),
+        "4": _brief("Tier: 1", "pm"),
+        "5": _brief("see the Tier: 1 and Files: a lines", "ba-sa"),
+        "6": _brief("Explore freely.", "Explore"),
+    }
+    lines = _sc_lines(tmp_path, runs)
+    assert "M6 role-agent briefs with a Tier: line and a Files: line: 2 of 5" in lines, lines
+
+
+def test_a_role_run_with_no_inbound_event_has_no_brief_lines(tmp_path: Path) -> None:
+    lines = _sc_lines(tmp_path, {"1": _brief(None, "frontend-qa"), "2": _brief("Tier: 1\nFiles: a", "frontend-engineer")})
+    assert "M6 role-agent briefs with a Tier: line and a Files: line: 1 of 2" in lines, lines
+
+
+# ---- SC-AC8: M2 and M7 from correction_rate -----------------------------------------
+
+
+def _lesson(memory: Path, name: str, date: str, mechanism: bool) -> None:
+    mech = "mechanism: tests/x.py\n" if mechanism else ""
+    (memory / name).write_text(f"---\nname: {name}\ntype: feedback\ndate: {date}\n{mech}---\nbody\n", "utf-8")
+
+
+def test_m2_and_m7_read_the_memory_directory(tmp_path: Path) -> None:
+    memory = tmp_path / "mem"
+    memory.mkdir()
+    # --until 2026-10-21 → the date is 2026-10-20; 3 and 9 days before it.
+    _lesson(memory, "recent.md", "2026-10-17", mechanism=True)
+    _lesson(memory, "older.md", "2026-10-11", mechanism=False)
+    (memory / "INDEX.md").write_text("# index\n", "utf-8")
+    result = _sc_meter(_SC_FIXTURE, memory, *_SC_WINDOW)
+    lines = result.stdout.splitlines()
+    assert "M2 owner corrections: 1 in the 7 days to 2026-10-20 (previous 7: 1, flat)" in lines, lines
+    assert "M7 1 lesson(s) since 2026-10-08 with no mechanism" in lines, lines
+
+
+def test_a_missing_memory_directory_is_said_not_zero(tmp_path: Path) -> None:
+    result = _sc_meter(_SC_FIXTURE, tmp_path / "absent", *_SC_WINDOW)
+    lines = result.stdout.splitlines()
+    assert result.returncode == 0 and "Traceback" not in result.stderr
+    assert "M2, M7: memory directory not found" in lines, lines
+    assert not any(line.startswith(("M2 ", "M7 ")) for line in lines), lines
+    assert any(line.startswith("M1 ") for line in lines)
+
+
+def test_an_unreadable_memory_file_is_not_measured_and_the_rest_prints(tmp_path: Path) -> None:
+    memory = tmp_path / "mem"
+    memory.mkdir()
+    (memory / "bad.md").write_bytes(b"---\ntype: feedback\n\xff\xfe\n---\n")
+    result = _sc_meter(_SC_FIXTURE, memory, *_SC_WINDOW)
+    lines = result.stdout.splitlines()
+    assert result.returncode == 0 and "Traceback" not in result.stderr
+    assert "M2, M7: not measured (unreadable memory file)" in lines, lines
+    for prefix in ("M1 ", "M3 ", "M4 ", "M6 "):
+        assert any(line.startswith(prefix) for line in lines), prefix
+
+
+# ---- SC-AC10: nothing from the transcripts is printed ---------------------------------
+
+
+def test_the_canary_never_reaches_the_scorecard_output(tmp_path: Path) -> None:
+    canary = "CANARY-7f3a"
+    raw = "".join(p.read_text("utf-8") for p in _SC_FIXTURE.glob("*.json"))
+    assert raw.count(canary) >= 6  # owner, Jarvis, brief and non-slug path text
+    result = _sc_meter(_SC_FIXTURE, tmp_path, *_SC_WINDOW)
+    assert result.stdout.startswith("scorecard — ")
+    assert canary not in result.stdout + result.stderr
+
+
+def test_an_internal_error_in_the_scorecard_prints_its_type_only(tmp_path: Path) -> None:
+    raising = tmp_path / "raising_reader.py"
+    raising.write_text(
+        "import agent_time, datetime as dt\n"
+        "class Odd:\n"
+        "    def __lt__(self, other):\n"
+        "        raise RuntimeError('/home/someone/CANARY-7f3a/agent.jsonl')\n"
+        "    __le__ = __gt__ = __ge__ = __lt__\n"
+        "def runs(source, since):\n"
+        "    yield agent_time.Run('(main thread)', [agent_time.Event(Odd(), 'inbound', owner=True)])\n",
+        "utf-8",
+    )
+    result = _meter("--reader", str(raising), "--dir", str(tmp_path), "--scorecard")
+    assert result.returncode == 0
+    assert result.stdout.strip() == "agent-time: internal error: RuntimeError"
+    assert "CANARY-7f3a" not in result.stdout + result.stderr

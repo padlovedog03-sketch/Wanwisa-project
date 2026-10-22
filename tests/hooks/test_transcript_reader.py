@@ -498,3 +498,121 @@ def test_no_edited_or_read_path_reaches_the_output(tmp_path: Path) -> None:
     assert any(line.strip().startswith("small  n=1") for line in out), out
     assert not any(_CANARY in line for line in out)
     assert not any(line.startswith("rework share: 0 of 9") for line in out)
+
+
+# ---- SC-AC2, SC-AC3: the scorecard's owner and turn-end marks (H-AC1 rule) ----------
+#
+# The scorecard counts owner messages and Jarvis's turn ends from marks the reader
+# sets. A reader that marks every inbound user line as an owner message would count
+# command echoes, meta lines and list-content lines as the owner talking (H-AC1's
+# own mutation). One reply spans up to 2 assistant lines, so the core counts turn
+# ends per distinct message id, from the reader's per-line marks.
+
+_SC_OWNER = _FIXTURE / "scorecard-owner"
+_SC_TURN_ENDS = _FIXTURE / "scorecard-turn-ends"
+_UNTIL = dt.datetime(2100, 1, 1, tzinfo=dt.timezone.utc)
+
+
+def assert_owner_count(run: agent_time.Run, expected: int) -> None:
+    """Fail naming `owner messages <expected> → <actual>`."""
+    actual = sum(1 for e in run.events if e.kind == "inbound" and e.owner)
+    assert actual == expected, f"owner messages {expected} → {actual}"
+
+
+def _scorecard_lines(reader, source: Path, memory_dir: Path) -> list:
+    runs = list(reader.runs(source, _SINCE))
+    return agent_time.scorecard(runs, _SINCE, _UNTIL, memory_dir, "transcript_reader.py").splitlines()
+
+
+def _exchanges(lines: list) -> int:
+    """Total exchanges over the M1 tier lines."""
+    return sum(int(m.group(1)) for line in lines if (m := re.match(r"  (?:tier \d|untiered): (\d+) exchanges", line)))
+
+
+def test_only_plain_non_meta_main_thread_strings_are_owner_messages(reader) -> None:
+    """SC-AC2 (RED-FIRST): 3 owner lines among 2 notifications, a command echo, a meta line,
+    a list-content line and 4 tool results."""
+    run = _only_run(reader, _SC_OWNER)
+    assert_owner_count(run, 3)
+    assert sum(1 for e in run.events if e.kind == "tool_result") == 4
+    assert sum(1 for e in run.events if e.kind == "notification") == 2
+
+
+def test_the_scorecard_reports_3_owner_messages_and_3_exchanges(reader, tmp_path: Path) -> None:
+    """SC-AC2 through the core: the per-day owner line and the M1 exchanges."""
+    lines = _scorecard_lines(reader, _SC_OWNER, tmp_path)
+    assert "owner messages per day (UTC): 2026-10-20 3" in lines, lines
+    assert _exchanges(lines) == 3, lines
+
+
+def test_marking_every_inbound_line_as_owner_is_caught(reader, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SC-AC2 planted mistake (H-AC1's mutation): every inbound user line marked owner gives 6, not 3."""
+    monkeypatch.setattr(reader, "_is_owner", lambda *args, **kwargs: True)
+    with pytest.raises(AssertionError) as caught:
+        assert_owner_count(_only_run(reader, _SC_OWNER), 3)
+    assert "owner messages 3 → 6" in str(caught.value)
+
+
+def test_a_subagent_brief_is_never_an_owner_message(tmp_path: Path, reader) -> None:
+    """Subagent inbound lines are briefs from Jarvis, never the owner."""
+    run = _only_run(reader, _qa_run(tmp_path))
+    assert [e.owner for e in run.events if e.kind == "inbound"] == [False]
+
+
+def test_a_reply_spanning_two_lines_is_one_turn_end(reader, tmp_path: Path) -> None:
+    """SC-AC3 (RED-FIRST, reader marks): 3 end_turn lines, 2 distinct ids → 2 turn ends, 1 extra."""
+    run = _only_run(reader, _SC_TURN_ENDS)
+    assert [e.message_id for e in run.events if e.kind == "model" and e.turn_end] == ["r1", "r1", "r2"]
+    lines = _scorecard_lines(reader, _SC_TURN_ENDS, tmp_path)
+    assert "  tier 0: 1 exchanges · 1 extra · mean 1.00 · 0 with none" in lines, lines
+
+
+def test_model_events_carry_their_text_for_tier_lines(reader) -> None:
+    run = _only_run(reader, _SC_TURN_ENDS)
+    assert next(e.text for e in run.events if e.kind == "model").startswith("Tier: 0")
+
+
+@pytest.mark.parametrize(
+    ("message", "turn_end"),
+    [
+        ({"stop_reason": "end_turn", "content": []}, True),  # no id: a turn end all the same
+        ({"id": "m", "stop_reason": "tool_use", "content": []}, False),
+        ({"id": "m", "stop_reason": ["end_turn"], "content": []}, False),
+        ({"id": "m", "stop_reason": None, "content": []}, False),
+    ],
+)
+def test_only_an_end_turn_stop_reason_is_a_turn_end(tmp_path: Path, reader, message: dict, turn_end: bool) -> None:
+    """SC-AC3 hostile: a missing id, a tool_use stop and a non-string stop_reason, with no crash."""
+    (tmp_path / "s.jsonl").write_text(
+        json.dumps({"type": "assistant", "timestamp": "2026-10-20T00:00:00.000Z", "message": message}) + "\n",
+        "utf-8",
+    )
+    run = _only_run(reader, tmp_path)
+    assert run.unreadable_lines == 0
+    assert [e.turn_end for e in run.events if e.kind == "model"] == [turn_end]
+
+
+def test_an_end_turn_line_with_no_timestamp_is_excluded(tmp_path: Path, reader) -> None:
+    """SC-AC3 hostile: an assistant line with no timestamp is excluded, as today."""
+    (tmp_path / "s.jsonl").write_text(
+        '{"type": "user", "timestamp": "2026-10-20T00:00:00.000Z", "message": {"content": "go"}}\n'
+        '{"type": "assistant", "message": {"id": "m", "stop_reason": "end_turn", "content": []}}\n',
+        "utf-8",
+    )
+    run = _only_run(reader, tmp_path)
+    assert [e.kind for e in run.events] == ["inbound"]
+    assert run.excluded == {"assistant (no timestamp)": 1}
+
+
+def test_two_turn_ends_with_no_id_count_as_two(tmp_path: Path, reader) -> None:
+    """SC-AC3 hostile: each id-less turn end counts as one, not merged into one."""
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "s.jsonl").write_text(
+        '{"type": "user", "timestamp": "2026-10-20T00:00:00.000Z", "message": {"content": "go"}}\n'
+        '{"type": "assistant", "timestamp": "2026-10-20T00:00:01.000Z", "message": {"stop_reason": "end_turn", "content": []}}\n'
+        '{"type": "assistant", "timestamp": "2026-10-20T00:00:02.000Z", "message": {"stop_reason": "end_turn", "content": []}}\n',
+        "utf-8",
+    )
+    lines = _scorecard_lines(reader, source, tmp_path)
+    assert "  untiered: 1 exchanges · 1 extra · mean 1.00 · 0 with none" in lines, lines

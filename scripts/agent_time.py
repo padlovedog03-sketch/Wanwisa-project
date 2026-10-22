@@ -26,12 +26,22 @@ notifications they carry), sorted by time. Every other event type is dropped
 and counted in `Run.excluded` by type name; a line that cannot be parsed is
 counted in `Run.unreadable_lines`.
 
+For the scorecard a reader also marks an inbound event `owner=True` when it is
+a message from the owner (H-AC1's rule, which is the adapter's to apply), and a
+model event `turn_end=True` when that response ended the turn; a model event
+may carry its response `text`, read for Tier lines only. All three default to
+off, and the time report never reads them.
+
 Output is categories, counts and durations only. Commands and inbound text
 are used for classification and are never printed (R39, AGENTS.md §8).
 
 Usage:
     python3 scripts/agent_time.py --reader <path> --dir <transcripts> [--since YYYY-MM-DD]
                                   [--rework [--qa-dir doc/qa]] [--test-pattern REGEX]
+    python3 scripts/agent_time.py --reader <path> --dir <transcripts> --scorecard
+                                  [--since T] [--until T] [--memory-dir doc/memory]
+        T is YYYY-MM-DD (midnight UTC) or YYYY-MM-DDTHH:MM:SSZ; the window is [since, until).
+        Prints M1–M7 of PRD-jarvis-coordinator instead of the time report; it runs alone.
 
 Always exits 0 (R39, design §J.2): it reports, it never gates. A malformed
 argument prints one `agent-time: error: …` line. Any unexpected failure prints
@@ -51,6 +61,7 @@ import os
 import re
 import statistics
 import sys
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -148,6 +159,8 @@ class Event:
     job_ids: tuple = ()
     text: Optional[str] = None
     paths: tuple = ()  # edit calls only: normalised paths, counted, never printed; () = unknown
+    owner: bool = False  # inbound only: the reader judged this an owner message (H-AC1)
+    turn_end: bool = False  # model only: this response ended the turn (a message to the owner)
 
 
 @dataclass(frozen=True)
@@ -291,8 +304,14 @@ def load_reader(path: Path) -> Optional[ModuleType]:
 
 
 def parse_since(text: str) -> dt.datetime:
-    """`YYYY-MM-DD` as midnight UTC."""
-    return dt.datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc)
+    """`YYYY-MM-DD` as midnight UTC, or `YYYY-MM-DDTHH:MM:SSZ` in UTC. No other offset is accepted."""
+    fmt = "%Y-%m-%dT%H:%M:%SZ" if "T" in text else "%Y-%m-%d"
+    return dt.datetime.strptime(text, fmt).replace(tzinfo=dt.timezone.utc)
+
+
+def parse_until(text: str) -> dt.datetime:
+    """`--until` takes the same two forms as `--since` (scorecard only)."""
+    return parse_since(text)
 
 
 def _test_pattern(text: str) -> Pattern:
@@ -572,6 +591,241 @@ def rework_report(runs: list, qa_dir: Optional[Path], since: dt.datetime) -> str
     return "\n".join(lines)
 
 
+# ---- The scorecard (SPEC-jarvis-coordinator-inc2-scorecard.md, R9–R10) ----------------
+#
+# M1–M7 for a window, from the same reader events as the time report. Owner messages
+# and turn ends are marked by the reader (`Event.owner`, `Event.turn_end`); everything
+# here counts neutral events only. Nothing from an event's text or paths is printed but
+# a report slug that passes SLUG_RE.
+
+#: The role agents whose briefs M6 reads and whose runs M3 may count.
+ROLE_TYPES = ("pm", "ba-sa", "ai-engineer", "frontend-engineer", "reviewer", "qa", "frontend-qa")
+
+#: The role agents whose report edits M3 counts.
+REVIEW_TYPES = ("reviewer", "qa", "frontend-qa")
+
+TIERS = ("tier 0", "tier 1", "tier 2", "untiered")
+
+#: A field line: plain, bulleted, numbered or bold, read after NFKC (as the guard reads it).
+_FIELD = r"^[ \t]*(?:(?:[-*]|\d+\.)[ \t]+)?(?:\*\*)?{}(?:\*\*)?[ \t]*:"
+
+#: An exchange's tier: the first Jarvis text with a Tier field line whose value is 0, 1 or 2.
+TIER_RE = re.compile(_FIELD.format("Tier") + r"(?:\*\*)?[ \t]*([012])", re.M)
+
+#: M6: a brief carries a Tier field line and a Files field line. Presence only.
+BRIEF_FIELD_RES = (re.compile(_FIELD.format("Tier"), re.M), re.compile(_FIELD.format("Files"), re.M))
+
+#: M3: a review or QA report path, in any checkout (a worktree too). `\Z`, not `$`:
+#: `$` also matches before a trailing newline.
+REPORT_RE = re.compile(r"(?:^|/)doc/qa/(REVIEW|QA)-(.+)\.md\Z")
+
+#: A slug is printed only when it is a plain label; anything else is UNPRINTABLE.
+SLUG_RE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
+
+DEFAULT_MEMORY_DIR = Path(__file__).resolve().parents[1] / "doc" / "memory"
+
+SC_METHOD = (
+    "method: an exchange is one owner message and everything until the next one; it belongs to the "
+    "window of its owner message, and events at or after --until are ignored; a turn end is one "
+    "distinct response id that ended the turn; an exchange's tier is the first Tier line in Jarvis's "
+    "text; a subagent run belongs to the window of its first event (its brief), unlike the time "
+    "report, which uses the last"
+)
+SC_LIMITS = (
+    "limits: M1 is an upper bound and treats one owner message as one task; an exchange with no "
+    "Tier line in Jarvis's reply is untiered, even inside a tiered task; M2 reads the working memory "
+    "folder, by date; M4's result is any tool result; M3 counts only runs that edit their report "
+    "file; M6 checks presence only and is 100% by construction where the guard intercepts; M7 is "
+    "not windowed; the transcripts the adapter keeps decide how far back any figure can go"
+)
+
+
+@dataclass(frozen=True)
+class _Exchange:
+    tier: str
+    extra: int
+    minutes: Optional[float]  # to the first turn end after a tool result; None = no result
+    day: dt.date
+
+
+def count_turn_ends(events: Iterable[Event]) -> int:
+    """Turn ends are distinct response ids, as turns are (SC-AC3); one with no id counts once."""
+    ids: set = set()
+    no_id = 0
+    for e in events:
+        if e.kind == "model" and e.turn_end:
+            if e.message_id is None:
+                no_id += 1
+            else:
+                ids.add(e.message_id)
+    return no_id + len(ids)
+
+
+def _nfkc(text: object) -> str:
+    return unicodedata.normalize("NFKC", text) if isinstance(text, str) else ""
+
+
+def _tier(events: list) -> str:
+    """The value of the first Tier line in Jarvis's text in the exchange, else `untiered`."""
+    for e in events:
+        if e.kind == "model":
+            found = TIER_RE.search(_nfkc(e.text))
+            if found:
+                return f"tier {found.group(1)}"
+    return "untiered"
+
+
+def _minutes_to_result(events: list) -> Optional[float]:
+    """Minutes from the owner message (events[0]) to the first turn end after a tool result."""
+    seen_result = False
+    for e in events[1:]:
+        if e.kind == "tool_result":
+            seen_result = True
+        elif e.kind == "model" and e.turn_end and seen_result:
+            return (e.t - events[0].t).total_seconds() / 60
+    return None
+
+
+def _exchanges(runs: list, since: dt.datetime, until: dt.datetime) -> list:
+    exchanges = []
+    for r in runs:
+        events = [e for e in r.events if e.t < until]
+        starts = [i for i, e in enumerate(events) if e.kind == "inbound" and e.owner]
+        for n, start in enumerate(starts):
+            if events[start].t < since:
+                continue
+            span = events[start : starts[n + 1] if n + 1 < len(starts) else len(events)]
+            exchanges.append(
+                _Exchange(
+                    _tier(span),
+                    max(0, count_turn_ends(span) - 1),
+                    _minutes_to_result(span),
+                    events[start].t.astimezone(dt.timezone.utc).date(),
+                )
+            )
+    return exchanges
+
+
+def _m1_lines(exchanges: list) -> list:
+    lines = ["M1 extra Jarvis messages per owner message (upper bound: gate stops and owner decisions are not told apart)"]
+    for tier in TIERS:
+        mine = [x for x in exchanges if x.tier == tier]
+        if not mine:
+            lines.append(f"  {tier}: no exchanges")
+            continue
+        extra = sum(x.extra for x in mine)
+        none = sum(1 for x in mine if not x.extra)
+        lines.append(f"  {tier}: {len(mine)} exchanges · {extra} extra · mean {extra / len(mine):.2f} · {none} with none")
+    return lines
+
+
+def _m4_lines(exchanges: list) -> list:
+    lines = ["M4 minutes from owner message to first reply after a tool result"]
+    for tier in TIERS:
+        mine = [x for x in exchanges if x.tier == tier]
+        if not mine:
+            lines.append(f"  {tier}: no exchanges")
+            continue
+        timed = [x.minutes for x in mine if x.minutes is not None]
+        no_result = len(mine) - len(timed)
+        if timed:
+            lines.append(f"  {tier}: median {statistics.median(timed):.1f} min (n {len(timed)}) · no result: {no_result}")
+        else:
+            lines.append(f"  {tier}: no result: {no_result}")
+    return lines
+
+
+def _m3_lines(review_runs: list, until: dt.datetime) -> list:
+    """Review and QA runs per report slug, each run once per slug and report kind it edited."""
+    head = "M3 review and QA runs per report slug: "
+    if not review_runs:
+        return [head + "no review or QA runs"]
+    counts: dict = defaultdict(Counter)
+    no_report = 0
+    for r in review_runs:
+        found = set()
+        for e in r.events:
+            if e.t >= until or e.kind != "tool_call" or not isinstance(e.paths, (tuple, list)):
+                continue
+            for path in e.paths:
+                match = REPORT_RE.search(path) if isinstance(path, str) else None
+                if match:
+                    slug = match.group(2)
+                    found.add((slug if SLUG_RE.fullmatch(slug) else UNPRINTABLE, match.group(1)))
+        no_report += not found
+        for label, kind in found:
+            counts[label][kind] += 1
+    wrote_none = f"{no_report} {'run' if no_report == 1 else 'runs'} wrote no report"
+    if not counts:
+        return [head + "no report slugs · " + wrote_none]
+    review = statistics.median(c["REVIEW"] for c in counts.values())
+    qa = statistics.median(c["QA"] for c in counts.values())
+    lines = [head + f"{len(counts)} slugs · review median {review:g} · QA median {qa:g} · " + wrote_none]
+    lines.extend(f"  {label}: review {c['REVIEW']} · QA {c['QA']}" for label, c in sorted(counts.items()))
+    return lines
+
+
+def _m6_line(role_runs: list) -> str:
+    head = "M6 role-agent briefs with a Tier: line and a Files: line: "
+    if not role_runs:
+        return head + "no role-agent briefs"
+    full = sum(
+        1 for r in role_runs if all(rx.search(_nfkc(_first_inbound_text(r))) for rx in BRIEF_FIELD_RES)
+    )
+    return head + f"{full} of {len(role_runs)}"
+
+
+def _memory_lines(memory_dir: Path, until: dt.datetime) -> tuple:
+    """(M2 lines, M7 lines) from correction_rate; one combined line when it cannot be measured."""
+    if not Path(memory_dir).is_dir():
+        return ["M2, M7: memory directory not found"], []
+    import correction_rate  # noqa: PLC0415 — a sibling script, imported only when the scorecard runs
+
+    date = (until - dt.timedelta(microseconds=1)).astimezone(dt.timezone.utc).date()
+    try:
+        m = correction_rate.measure(Path(memory_dir), date)
+    except (OSError, ValueError):  # ValueError covers UnicodeDecodeError and a bad date: line
+        return ["M2, M7: not measured (unreadable memory file)"], []
+    last, prev = m["last"], m["prev"]
+    trend = "down" if last < prev else "NOT down" if last > prev else "flat"
+    days = correction_rate.WINDOW_DAYS
+    return (
+        [f"M2 owner corrections: {last} in the {days} days to {date} (previous {days}: {prev}, {trend})"],
+        [f"M7 {len(m['unmechanised'])} lesson(s) since {correction_rate.MECHANISM_REQUIRED_FROM} with no mechanism"],
+    )
+
+
+def _utc(t: dt.datetime) -> str:
+    return f"{t.astimezone(dt.timezone.utc):%Y-%m-%dT%H:%M:%SZ}"
+
+
+def scorecard(runs: list, since: dt.datetime, until: dt.datetime, memory_dir: Path, reader_name: str) -> str:
+    """The scorecard: M1–M7 and owner messages per day for [since, until). Counts only (R39)."""
+    exchanges = _exchanges(runs, since, until)
+    role_runs = [
+        r for r in runs
+        if r.agent_type in ROLE_TYPES and r.events and since <= r.events[0].t < until and not is_probe(r)
+    ]
+    m2, m7 = _memory_lines(memory_dir, until)
+    days = Counter(x.day for x in exchanges)
+    lines = [
+        f"scorecard — window [{_utc(since)}, {_utc(until)}) · reader: {reader_name}"
+        f" · unreadable lines: {sum(r.unreadable_lines for r in runs)}",
+        *_m1_lines(exchanges),
+        *m2,
+        *_m3_lines([r for r in role_runs if r.agent_type in REVIEW_TYPES], until),
+        *_m4_lines(exchanges),
+        "M5 new-user setup time: not measured by this command (timed by hand, R12)",
+        _m6_line(role_runs),
+        *m7,
+        "owner messages per day (UTC): "
+        + (" · ".join(f"{day} {n}" for day, n in sorted(days.items())) or "none"),
+        SC_METHOD,
+        SC_LIMITS,
+    ]
+    return "\n".join(lines)
+
+
 class _UsageError(Exception):
     """A malformed argument, reported as one line instead of argparse's exit 2."""
 
@@ -600,14 +854,26 @@ def _run(argv: list) -> int:
     parser = _Parser(description="Where agent time goes, by category.")
     parser.add_argument("--reader", type=Path, help="transcript reader, as declared in doc/framework/ADAPTERS.md")
     parser.add_argument("--dir", type=Path, help="transcript directory the reader understands")
-    parser.add_argument("--since", type=parse_since, default=DEFAULT_SINCE, help="YYYY-MM-DD (default: all)")
+    parser.add_argument(
+        "--since", type=parse_since, default=DEFAULT_SINCE, help="YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (default: all)"
+    )
     parser.add_argument("--rework", action="store_true", help="add the rework share and causes")
     parser.add_argument("--qa-dir", type=Path, help="QA reports for rework causes (e.g. doc/qa)")
     parser.add_argument("--test-pattern", type=_test_pattern, help="extra regex for this project's test commands")
     parser.add_argument("--targets", type=_targets, help="judge size classes: small=15,medium=25,large=50 (minutes)")
-    parser.add_argument("--min-runs", type=_min_runs, default=3, help="runs a class needs to be judged (default 3)")
+    parser.add_argument("--min-runs", type=_min_runs, help="runs a class needs to be judged (default 3)")
     parser.add_argument("--include-probes", action="store_true", help="count PROBE: runs too (debugging only)")
+    parser.add_argument("--scorecard", action="store_true", help="print M1–M7 for the window instead (runs alone)")
+    parser.add_argument("--until", type=parse_until, help="scorecard window end, exclusive (default: now)")
+    parser.add_argument("--memory-dir", type=Path, default=DEFAULT_MEMORY_DIR, help="memory folder for M2 and M7")
     args = parser.parse_args(argv)
+    if args.scorecard and (args.rework or args.targets is not None or args.min_runs is not None or args.include_probes):
+        raise _UsageError("--scorecard runs alone")
+    if args.until is not None and not args.scorecard:
+        raise _UsageError("--until needs --scorecard")
+    until = args.until or dt.datetime.now(dt.timezone.utc)
+    if args.scorecard and until <= args.since:
+        raise _UsageError("--until must be later than --since")
 
     reader = load_reader(args.reader) if args.reader else None
     if reader is None or not hasattr(reader, "runs"):
@@ -621,9 +887,13 @@ def _run(argv: list) -> int:
         return 0
     test_re = args.test_pattern or TEST_RE
     runs = list(reader.runs(args.dir, args.since))
+    if args.scorecard:
+        print(scorecard(runs, args.since, until, args.memory_dir, args.reader.name))
+        return 0
     print(report(runs, args.since, args.reader.name, test_re))
     if any(r.events for r in runs):
-        print(size_report(runs, args.targets, args.min_runs, args.include_probes))
+        min_runs = 3 if args.min_runs is None else args.min_runs
+        print(size_report(runs, args.targets, min_runs, args.include_probes))
     if args.rework:
         print(rework_report(runs, args.qa_dir, args.since))
     return 0

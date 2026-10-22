@@ -1,0 +1,15 @@
+{
+  "_comment": "SC-AC1/SC-AC10 qa run: a brief with no Files: line, and one report edit whose slug is not a label (a space).",
+  "agent_type": "qa",
+  "t0": "2026-10-20T10:02:00+00:00",
+  "events": [
+    {"t": 0, "kind": "inbound", "text": "Tier: 1 — test CANARY-7f3a"},
+    {"t": 10, "kind": "model", "message_id": "q1"},
+    {"t": 10, "kind": "tool_call", "tool_id": "E1", "tool_kind": "edit", "paths": ["/w/doc/qa/QA-alpha.md"]},
+    {"t": 11, "kind": "tool_result", "tool_id": "E1"},
+    {"t": 20, "kind": "model", "message_id": "q2"},
+    {"t": 20, "kind": "tool_call", "tool_id": "E2", "tool_kind": "edit", "paths": ["/w/doc/qa/QA-CANARY-7f3a x.md"]},
+    {"t": 21, "kind": "tool_result", "tool_id": "E2"},
+    {"t": 30, "kind": "model", "message_id": "q3"}
+  ]
+}

@@ -130,11 +130,29 @@ def _edited_paths(name: str, tool_input: dict, cwd: object) -> tuple:
     return (os.path.normpath(path),)
 
 
-def _events_of(kind: str, t: dt.datetime, message: dict, cwd: object = None) -> list:
+def _is_owner(record: dict, content: object, main_thread: bool) -> bool:
+    """H-AC1's owner rule: a main-thread user line whose content is a plain string not
+    starting with `<`, on a record with no `isMeta: true`. Task notifications, command
+    echoes, meta lines and list content (tool results, pasted blocks) are not the owner.
+    The SC-AC2 mutation replaces this with one that says yes to every inbound line."""
+    return main_thread and isinstance(content, str) and not content.startswith("<") and record.get("isMeta") is not True
+
+
+def _events_of(
+    kind: str, t: dt.datetime, message: dict, cwd: object = None, *, record: object = None, main_thread: bool = False
+) -> list:
     """Neutral events for one clock line (design §J.3, mapping table)."""
     content = message.get("content")
     if kind == "assistant":
-        events = [Event(t, "model", message_id=_id(message.get("id")))]
+        events = [
+            Event(
+                t,
+                "model",
+                message_id=_id(message.get("id")),
+                text="\n".join(str(b.get("text", "")) for b in _blocks(content) if b.get("type") == "text"),
+                turn_end=message.get("stop_reason") == "end_turn",
+            )
+        ]
         for block in _blocks(content):
             if block.get("type") != "tool_use":
                 continue
@@ -164,7 +182,8 @@ def _events_of(kind: str, t: dt.datetime, message: dict, cwd: object = None) -> 
     text = _text(content)
     if NOTIFICATION_TAG in text:
         return [Event(t, "notification", job_ids=tuple(TASK_ID_RE.findall(text)))]
-    return [Event(t, "inbound", text=text)]
+    owner = _is_owner(record if isinstance(record, dict) else {}, content, main_thread)
+    return [Event(t, "inbound", text=text, owner=owner)]
 
 
 def _read_run(path: Path, agent_type: str, unreadable: int = 0) -> Run:
@@ -204,7 +223,9 @@ def _read_run(path: Path, agent_type: str, unreadable: int = 0) -> Run:
             continue
         message = record.get("message") if isinstance(record.get("message"), dict) else {}
         try:
-            events.extend(_events_of(kind, t, message, record.get("cwd")))
+            events.extend(
+                _events_of(kind, t, message, record.get("cwd"), record=record, main_thread=agent_type == MAIN_THREAD)
+            )
         except _BAD_LINE:
             unreadable += 1
     events.sort(key=lambda e: e.t)  # stable: a tool call keeps its place after its model event

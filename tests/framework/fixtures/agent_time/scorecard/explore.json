@@ -1,0 +1,9 @@
+{
+  "_comment": "SC-AC1 non-role run: never counted for M3 or M6.",
+  "agent_type": "Explore",
+  "t0": "2026-10-20T10:03:00+00:00",
+  "events": [
+    {"t": 0, "kind": "inbound", "text": "Find CANARY-7f3a."},
+    {"t": 10, "kind": "model", "message_id": "x1"}
+  ]
+}

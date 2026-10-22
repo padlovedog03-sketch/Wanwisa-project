@@ -1,0 +1,15 @@
+{
+  "_comment": "SC-AC1/SC-AC10 reviewer run: a full brief, one report edit and one non-slug edit path carrying the canary.",
+  "agent_type": "reviewer",
+  "t0": "2026-10-20T10:01:00+00:00",
+  "events": [
+    {"t": 0, "kind": "inbound", "text": "Tier: 1 — review CANARY-7f3a\nFiles: doc/qa/REVIEW-alpha.md"},
+    {"t": 10, "kind": "model", "message_id": "r1"},
+    {"t": 10, "kind": "tool_call", "tool_id": "E1", "tool_kind": "edit", "paths": ["/w/doc/qa/REVIEW-alpha.md"]},
+    {"t": 11, "kind": "tool_result", "tool_id": "E1"},
+    {"t": 20, "kind": "model", "message_id": "r2"},
+    {"t": 20, "kind": "tool_call", "tool_id": "E2", "tool_kind": "edit", "paths": ["/w/CANARY-7f3a/notes.md"]},
+    {"t": 21, "kind": "tool_result", "tool_id": "E2"},
+    {"t": 30, "kind": "model", "message_id": "r3"}
+  ]
+}
