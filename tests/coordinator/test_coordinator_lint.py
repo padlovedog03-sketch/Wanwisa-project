@@ -675,3 +675,32 @@ def test_git_missing_from_path_exits_2_with_one_line(repo: Path) -> None:
 def test_the_default_mode_still_needs_exactly_one_argument(tmp_path: Path) -> None:
     result = subprocess.run([sys.executable, str(_SCRIPT)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 2 and "usage: coordinator_lint.py <file>|-" in result.stderr
+
+
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_help_prints_the_usage_and_exits_0(flag: str) -> None:
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPT), flag], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    assert "python3 scripts/coordinator_lint.py --approve-ready" in result.stdout
+
+
+def test_a_missing_file_is_one_plain_error_naming_it_and_exits_2(tmp_path: Path) -> None:
+    missing = tmp_path / "no-such-report.md"
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPT), str(missing)], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+    assert str(missing) in result.stderr
+    assert len(result.stderr.strip().splitlines()) == 1
+
+
+def test_a_directory_path_is_a_plain_error_not_a_traceback(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPT), str(tmp_path)], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr and str(tmp_path) in result.stderr

@@ -12,7 +12,8 @@ read -r -p "path ที่เก็บโค้ดหน้าเว็บ (เ�
 [ -z "$PKG" ] && { echo "ต้องมีชื่อแพ็กเกจ" >&2; exit 1; }
 
 FILES=$(grep -rl '<PROJECT>\|<PACKAGE>\|<BACKEND_REPO_PATH>\|<FRONTEND_REPO_PATH>\|<FRONTEND_REPO>' \
-        .claude .agents doc scripts AGENTS.md README.md 2>/dev/null || true)
+        .claude .agents doc scripts AGENTS.md README.md 2>/dev/null \
+        | grep -v '^\.claude/worktrees/' || true)
 [ -z "$FILES" ] && { echo "ไม่พบตัวยึด — เหมือนจะ bootstrap ไปแล้ว"; exit 0; }
 
 python3 - "$PROJECT" "$PKG" "$BACKEND" "$FRONTEND" <<'PY'
@@ -28,6 +29,8 @@ subs = {
 n = 0
 for root in ('.claude', '.agents', 'doc', 'scripts'):
     for p in pathlib.Path(root).rglob('*'):
+        if p.parts[:2] == ('.claude', 'worktrees'):
+            continue  # agent worktrees are scratch copies, not project files
         if p.is_file() and p.suffix in {'.md', '.py', '.json', '.yaml', '.yml'}:
             s = p.read_text(encoding='utf-8'); o = s
             for a, b in subs.items(): s = s.replace(a, b)
@@ -53,9 +56,10 @@ echo "== ตัวยึดที่ยังเหลือ (ต้องเต
 # bootstrap.sh itself names every placeholder in its own substitution table, and
 # doc/templates + doc/framework are *meant* to keep theirs — excluding them is the
 # difference between a report you read and a report you learn to ignore.
+# .claude/worktrees/ holds agent scratch copies, skipped exactly as CI gate 3 does.
 LEFT=$(grep -rn '<[A-Z_]\{3,\}>' .claude .agents doc scripts AGENTS.md README.md 2>/dev/null \
        | grep -v 'doc/framework/' | grep -v 'doc/templates/' \
-       | grep -v 'scripts/bootstrap.sh' || true)
+       | grep -v 'scripts/bootstrap.sh' | grep -v '^\.claude/worktrees/' || true)
 if [ -z "$LEFT" ]; then
   echo "  ไม่มี — เติมครบแล้ว"
 else
