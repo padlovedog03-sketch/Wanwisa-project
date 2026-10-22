@@ -64,9 +64,50 @@ VT = [PRD-verify-tiers-merge-gate](../requirements/PRD-verify-tiers-merge-gate.m
 | DA Part E, second half (E-AC5, E-AC6): new tests must prove they catch bugs; depth matched to the task | DA | — |
 | DA Part A, rest: A-AC1, A-AC2, A-AC4 (d) and (e), A-AC6 (a), (b) and (d) (the standing mandate itself) | DA | Task orders do not need a standing mandate. |
 | DA Part G, rest: G-AC1 exceptions (a) mandate and (c) absence | DA | They follow when A or K is un-parked. |
-| CI gate 3 (placeholder scan) also scans `.claude/worktrees/`, so `verify-full` in the main tree goes red while an increment worktree holds a test fixture that contains an upper-case placeholder | — | Tier 0 bugfix candidate. Found 2026-10-21 by ba-sa (JC am1); the same commit was green in a clean clone. Workaround until fixed: gate in a clean clone. |
-| `coordinator_lint.py` rule 6 still refuses a list-form `Files:` in `Slice:` briefs, so it disagrees with the spawn guard after JC am1 | JC | Found by ba-sa (JC am1). Belongs to a different spec; align when that spec is next touched. |
-| JC am1 label grammar (AM1-ADR-2) is letters and spaces only, so after an empty bulleted `- Files:` the items `- NO_SPEC_BUGFIX: …` or `- Verify-with: x` count as paths and the brief passes | JC | Found by QA 2026-10-21 (doc/qa/QA-jarvis-coordinator.md). Proposed fix: widen the label to `[A-Za-z][A-Za-z0-9_ -]*`, a one-line amendment plus tests. |
-| Pre-commit refuses a commit whose staged tree's newest `.verify` record is RED | — | Mechanism candidate for doc/memory/gate-exit-code-before-commit.md (coordinator piped verify-full into grep and committed e6b4daa on RED). Candidate for JC Inc 1 if the owner wants it. |
+| CI gate 3 (placeholder scan) also scans `.claude/worktrees/`, so `verify-full` in the main tree goes red while an increment worktree holds a test fixture that contains an upper-case placeholder | — | Moved to the improvement checklist, item B (in progress, Tier 0). Found 2026-10-21 by ba-sa (JC am1); the same commit was green in a clean clone. Workaround until fixed: gate in a clean clone. |
+| `coordinator_lint.py` rule 6 still refuses a list-form `Files:` in `Slice:` briefs, so it disagrees with the spawn guard after JC am1 | JC | Found by ba-sa (JC am1). Belongs to a different spec; align when that spec is next touched. See improvement checklist C3 (owner decision). |
+| JC am1 label grammar (AM1-ADR-2) is letters and spaces only, so after an empty bulleted `- Files:` the items `- NO_SPEC_BUGFIX: …` or `- Verify-with: x` count as paths and the brief passes | JC | Found by QA 2026-10-21 (doc/qa/QA-jarvis-coordinator.md). Proposed fix: widen the label to `[A-Za-z][A-Za-z0-9_ -]*`, a one-line amendment plus tests. See improvement checklist C1 (owner decision). |
+| Pre-commit refuses a commit whose staged tree's newest `.verify` record is RED | — | Mechanism candidate for doc/memory/gate-exit-code-before-commit.md (coordinator piped verify-full into grep and committed e6b4daa on RED). Candidate for JC Inc 1 if the owner wants it. See improvement checklist C2 (owner decision). |
 
 **Not tracked here.** These follow-ups belong to the downstream project sessions (doc/memory/project-reds-belong-to-project-session.md): triage the pilot project's 30 red tests; render each PDF once; set the worker count; set up the runner and sharding; move structure-watching tests to lint; remove change-detector tests; split the layout model.
+
+## Improvement checklist (owner request 2026-10-22)
+
+The owner asked for an audit toward "make Jarvis the best framework" (verification honesty, speed and cost, workflow tiers, self-learning, security, benchmarks). Each point is mapped below. Evidence was measured on commit 018f11b. Nothing here is approved new work: A is already covered, B is a Tier 0 bugfix, C waits for the owner, D stays parked under doc/memory/smallest-useful-scope-first.md, stay-on-the-definition.md and ease-of-use-over-strictness.md.
+
+### A. Already covered
+
+| Item | Evidence | Severity | Tier / governing spec | Status |
+|---|---|---|---|---|
+| A1. Workflow tiers (Quick / Standard / High-assurance) | Tiers 0 / 1 / 2 in AGENTS.md §5 | — | AGENTS.md §5 | Covered |
+| A2. Fast / full / merge verification split | `verify-fast`, `verify-handoff`, `verify-merge` shipped | — | VT, Active rows 7–8 | Covered (Done) |
+| A3. Time meter per agent | Active time per agent type and category | — | VT, Active row 1 | Covered (Done) |
+| A4. Scorecard, including false-green rate | Scorecard for M1–M7 planned. Proposed new metric: "false-green rate on a fixed failure-scenario set" | — | JC, Active row 10 | Covered by row 10; adding the metric is an owner decision |
+| A5. Benchmark, before and after | Pilot trial with JC M1–M7 | — | VT + DA + JC, Active row 13 | Covered (Not started) |
+| A6. Lessons become mechanisms | `mechanism:` line rule; `scripts/correction_rate.py` | — | AGENTS.md §9 | Covered |
+
+### B. Fix now
+
+| Item | Evidence | Severity | Tier / governing spec | Status |
+|---|---|---|---|---|
+| B1. CI gate 3 (placeholder scan) also scans `.claude/worktrees/` | A fixture in a worktree makes `tests/ci/test_ci_examples.py::test_gate_3_is_green_after_bootstrap_runs` fail: 1 failed, 21 passed. Clean tree: 22 passed. Moved here from the Parked table | Medium | Tier 0 (NO_SPEC_BUGFIX) | Review PASS (round 3) and QA PASS; fix 632c808 on branch worktree-agent-afbef35185650415b, awaiting owner merge |
+
+### C. Owner decisions (spec amendment or new mechanism, not bugs)
+
+| Item | Evidence | Severity | Tier / governing spec | Status |
+|---|---|---|---|---|
+| C1. JC am1 label grammar lets a brief to a non-engineer role pass with no file list | Approved AM1-ADR-2 allows letters and spaces only. `Files:` followed by `- NO_SPEC_BUGFIX: repro`, `- Verify-with: x` or `- Verify_with: x` gives guard exit 0 for `reviewer` (ai-engineer is already blocked by rule A5). Fix: widen the label to `[A-Za-z][A-Za-z0-9_ -]*`, plus tests. Edge: `- Makefile: build rules` would then end the list | Medium | Tier 2 amendment to SPEC-jarvis-coordinator (am1) | Owner decision. Recommendation: amend |
+| C2. Pre-commit refuses a commit when the newest `.verify` record for the staged tree is RED | Mechanism for doc/memory/gate-exit-code-before-commit.md, which today says `mechanism: none` | Medium | New mechanism, no spec yet | Owner decision. Recommendation: yes, keep it small |
+| C3. `coordinator_lint.py` rule 6 rejects a list-form `Files:` | Disagrees with the spawn guard after JC am1, so a valid brief is reported RED (false red) | Low | Governed by the coordinator_lint spec | Owner decision. Recommendation: align in the same amendment as C1 |
+
+### D. Parked with evidence
+
+| Item | Evidence | Severity | Tier / governing spec | Status |
+|---|---|---|---|---|
+| D1. The framework's own test suite has no count check | `verify-full` prints `counts: not configured — executed == collected NOT checked`; this repo has no `scripts/verify.conf`. A silent under-run of the framework's own suite is possible (mission: no false green) | High | VT Part A+C (row 3 area) | Parked. Candidate next increment after B1 |
+| D2. `verify-full` in this repo exits 0 while printing `EXIT GATE INCOMPLETE` | Lint, format and tests are `echo TODO:` by design in the template. Approved behaviour (SPEC-verify-tiers-merge-gate behaviour table). Risk: a CI that reads only the exit code | Low | SPEC-verify-tiers-merge-gate | Declared limit. No change proposed |
+| D3. `verify-full` is slow on the framework itself | 3m56s wall time; the `hooks` step is 183s of it (1303 tests). Candidate: confirm the handoff tier's test selection covers the framework's own suite | Medium | VT Part B (row 7) | Parked |
+| D4. `python3 scripts/coordinator_lint.py --help` crashes | Prints a `FileNotFoundError` traceback instead of help | Low | Tier 0 candidate | Parked |
+| D5. Areas not yet in any PRD | Security review (prompt injection through fetched or external content, tool permissions, secret scanning in commits, dependency pinning); adapter conformance tests per tool; timeout, budget and cancellation policy for agent runs; resuming interrupted tasks (part may land with row 11 task orders) | Unknown until assessed | None yet (would be Tier 2) | Parked until the pilot trial (row 13) shows need |
+| D6. Owner correction rate is not going down | `scripts/correction_rate.py`: 6 in the last 7 days against 0 in the previous 7 | High | JC, Active row 10 | Tracked by row 10 |
+| D7. `scripts/bootstrap.sh` leftover report and placeholder substitution still include `.claude/worktrees/` | Found by review and QA of B1: bootstrap lines 14 and 56–58 lack the new exclusion, so its leftover list shows worktree files that CI gate 3 now skips, and substitution rewrites `<PROJECT>` inside agent worktrees. `test_gate_3_exclusions_match_bootstraps_own_leftover_check` still compares only the three older exclusions | Low | Tier 0 candidate | Parked |
