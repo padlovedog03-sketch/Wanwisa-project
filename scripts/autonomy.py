@@ -1179,6 +1179,26 @@ def _is_opt_in(root: Path, staged: list[str], key: str, entries: dict[str, dict]
     return bool(slug) and kind in ("mandate", "order") and key not in revoked and key.startswith(f"{kind}-{slug}-")
 
 
+def _issued_order(root: Path, key: str, entries: dict[str, dict], revoked: set[str]) -> bool:
+    """`key` is a live, unrevoked `kind: order` entry of this project."""
+    config = root / CONFIG_REL
+    try:
+        text = config.read_text(encoding="utf-8") if config.is_file() else _git_text(root, "show", f"HEAD:{CONFIG_REL}")
+    except (OSError, UnicodeDecodeError):
+        text = None
+    slug = _slug(text)
+    entry = entries.get(key) or {}
+    expires = str(entry.get("expires", ""))[:10]
+    return (
+        bool(slug)
+        and entry.get("kind") == "order"
+        and key not in revoked
+        and key.startswith(f"order-{slug}-")
+        and bool(expires)
+        and expires >= date.today().isoformat()
+    )
+
+
 def check_commit(root: Path, message: str, extra_protected: tuple[str, ...] = ()) -> list[str]:
     """Problems with the staged commit, or `[]`. Under autonomy, a staged
     protected path (added, changed, deleted or renamed) needs an
@@ -1218,12 +1238,15 @@ def check_commit(root: Path, message: str, extra_protected: tuple[str, ...] = ()
     if any(_owner_approves(k, entries, revoked, artifacts) for k in keys):
         return []
     opt_in = [k for k in keys if _is_opt_in(root, staged, k, entries, revoked)]
-    if opt_in:
+    # AM2-AC3 (b): a live order of this project, named on the trailer, clears
+    # its own newly added document (the owner commits what delegate.sh wrote).
+    issued = [k for k in keys if _issued_order(root, k, entries, revoked)]
+    if opt_in or issued:
         # The opt-in clears only what it adds, never an edit to existing files,
         # and of that only the project file and the document the owner's
         # mandate or order entry names (AM1-ADR-3).
-        cleared = {CONFIG_REL.casefold()} | {
-            _normalise(str(entries[k].get("artifact", ""))).casefold() for k in opt_in
+        cleared = ({CONFIG_REL.casefold()} if opt_in else set()) | {
+            _normalise(str(entries[k].get("artifact", ""))).casefold() for k in (*opt_in, *issued)
         }
         added = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=A"],

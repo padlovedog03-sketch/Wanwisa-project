@@ -328,3 +328,102 @@ def test_an_append_does_not_carry_another_protected_path(governed: tuple[Path, d
     assert result.returncode != 0, "an append to the log carried a change to scripts/autonomy.json"
     assert "always-human item AH5: scripts/autonomy.json is protected" in result.stderr
     assert f"{_LOG} is protected" not in result.stderr
+
+
+# --------------------------------------------------------------------------- AM2-AC3 (b)
+# SPEC-delegated-autonomy-am2-task-orders-scope AM2-AC3 (b): an ADDED file that
+# is the `artifact` of a live, unrevoked `kind: order` entry of this project is
+# committable when that entry's key is on an `Owner-Approved:` trailer. A
+# modified order document, a trailer naming a different, revoked, expired or
+# other-project order, and any other protected path stay refused (AH5).
+
+_SECOND_KEY = "order-proj-second-2026-10-22"
+_SECOND_DOC = "doc/orders/ORDER-proj-second.md"
+
+
+def _order(key: str, artifact: str, **extra: str) -> dict:
+    return _entry(key, artifact, **{"kind": "order", "expires": "2099-12-31", **extra})
+
+
+def _ordered(tmp_path: Path, *entries: dict) -> tuple[Path, dict[str, str]]:
+    """Opted in under the first order; the registry then holds `entries` too."""
+    repo, env = _opted_in(tmp_path)
+    Path(env["APPROVAL_LOG"]).write_text("".join(json.dumps(e) + "\n" for e in (_ORDER, *entries)), encoding="utf-8")
+    return repo, env
+
+
+def _add_order_doc(repo: Path, env: dict[str, str], rel: str = _SECOND_DOC, text: str = "Task: t\n") -> None:
+    path = repo / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    _git(repo, "add", "-A", env=env)
+
+
+def test_an_added_order_document_commits_under_its_own_order_key(tmp_path: Path) -> None:
+    repo, env = _ordered(tmp_path, _order(_SECOND_KEY, _SECOND_DOC))
+    _add_order_doc(repo, env)
+    result = _git(repo, "commit", "-q", "-m", f"order: second\n\nOwner-Approved: {_SECOND_KEY}", env=env)
+    assert result.returncode == 0, result.stderr
+
+
+def test_an_added_order_document_with_no_trailer_is_refused(tmp_path: Path) -> None:
+    repo, env = _ordered(tmp_path, _order(_SECOND_KEY, _SECOND_DOC))
+    _add_order_doc(repo, env)
+    result = _git(repo, "commit", "-q", "-m", "order: second", env=env)
+    assert result.returncode != 0
+    assert f"always-human item AH5: {_SECOND_DOC} is protected" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["different-order", "revoked", "expired", "other-project", "not-an-order"],
+)
+def test_an_added_order_document_under_the_wrong_key_is_refused(tmp_path: Path, case: str) -> None:
+    second = _order(_SECOND_KEY, _SECOND_DOC)
+    if case == "different-order":
+        trailer, extra = _ORDER_KEY, [second]
+    elif case == "revoked":
+        revocation = _entry(f"revoke-{_SECOND_KEY}-2026-10-23", _SECOND_DOC, kind="revocation",
+                            revokes=_SECOND_KEY, status="Revoked")
+        trailer, extra = _SECOND_KEY, [second, revocation]
+    elif case == "expired":
+        trailer, extra = _SECOND_KEY, [_order(_SECOND_KEY, _SECOND_DOC, expires="2001-01-01")]
+    elif case == "other-project":
+        trailer, extra = "order-else-second-2026-10-22", [_order("order-else-second-2026-10-22", _SECOND_DOC)]
+    else:
+        # Order-shaped key and the right artifact, but the entry is not an order.
+        trailer, extra = _SECOND_KEY, [_entry(_SECOND_KEY, _SECOND_DOC, kind="mandate", expires="2099-12-31")]
+    repo, env = _ordered(tmp_path, *extra)
+    _add_order_doc(repo, env)
+    result = _git(repo, "commit", "-q", "-m", f"order: second\n\nOwner-Approved: {trailer}", env=env)
+    assert result.returncode != 0, f"{case}: an added order document committed"
+    assert f"always-human item AH5: {_SECOND_DOC} is protected" in result.stderr
+
+
+def test_a_modified_order_document_is_refused_under_its_own_key(tmp_path: Path) -> None:
+    repo, env = _ordered(tmp_path, _order(_SECOND_KEY, _SECOND_DOC))
+    _add_order_doc(repo, env)
+    assert _git(repo, "commit", "-q", "-m", f"order\n\nOwner-Approved: {_SECOND_KEY}", env=env).returncode == 0
+    _add_order_doc(repo, env, text="Task: a wider task\n")
+    result = _git(repo, "commit", "-q", "-m", f"widen the order\n\nOwner-Approved: {_SECOND_KEY}", env=env)
+    assert result.returncode != 0, "an edit to an issued order document committed under its key"
+    assert f"always-human item AH5: {_SECOND_DOC} is protected" in result.stderr
+
+
+def test_an_added_order_document_does_not_carry_another_protected_path(tmp_path: Path) -> None:
+    repo, env = _ordered(tmp_path, _order(_SECOND_KEY, _SECOND_DOC))
+    _add_order_doc(repo, env)
+    result = _widen(repo, env, f"order and widen\n\nOwner-Approved: {_SECOND_KEY}")
+    assert result.returncode != 0, "an added order document carried a change to scripts/autonomy.json"
+    assert "always-human item AH5: scripts/autonomy.json is protected" in result.stderr
+    assert f"{_SECOND_DOC} is protected" not in result.stderr
+
+
+def test_an_order_key_clears_only_its_own_document(tmp_path: Path) -> None:
+    repo, env = _ordered(tmp_path, _order(_SECOND_KEY, _SECOND_DOC))
+    _add_order_doc(repo, env)
+    _add_order_doc(repo, env, rel="doc/orders/ORDER-proj-third.md")
+    result = _git(repo, "commit", "-q", "-m", f"two orders\n\nOwner-Approved: {_SECOND_KEY}", env=env)
+    assert result.returncode != 0
+    assert "always-human item AH5: doc/orders/ORDER-proj-third.md is protected" in result.stderr
+    assert f"{_SECOND_DOC} is protected" not in result.stderr

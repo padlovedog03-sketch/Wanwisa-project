@@ -411,3 +411,48 @@ def test_a_document_outside_the_cohort_still_needs_a_registry_entry(
     problems, checked, _ = verifier.verify()
     assert checked == 2
     assert [p.artifact for p in problems] == ["doc/specs/SPEC-brand-new.md"]
+
+
+# ---------------------------------------------------------------------------
+# A-AC9 and A-AC10 (SPEC-delegated-autonomy.md): new registry entry kinds keep
+# every project's verification readable, and a key written twice before the
+# revision rule is reported, never failed.
+# ---------------------------------------------------------------------------
+
+_REVOCATION = {
+    "key": "revoke-probe-key-1-2026-10-22",
+    "artifact": "doc/specs/SPEC-probe.md",
+    "status": "Revoked",
+    "approved_by": "human",
+    "approved_at": "2026-10-22T09:00:00+07:00",
+    "kind": "revocation",
+    "revokes": "probe-key-1",
+}
+
+
+def test_a_new_kind_line_missing_artifact_fails_every_declared_key(cli_repo: Path) -> None:
+    """A-AC10 planted red: the shape the spec measured. Then the conforming shape is green."""
+    bad = {k: v for k, v in _REVOCATION.items() if k != "artifact"}
+    registry = _write_registry(cli_repo, _entry(), bad)
+    result = _run_cli(cli_repo, registry)
+    assert result.returncode == 1, result.stdout
+    assert "registry unavailable" in result.stdout
+    assert "missing required field(s): ['artifact']" in result.stdout
+
+    registry = _write_registry(cli_repo, _entry(), _REVOCATION)
+    result = _run_cli(cli_repo, registry)
+    assert result.returncode == 0, result.stdout
+
+
+def test_a_legacy_duplicate_key_is_reported_as_information(cli_repo: Path) -> None:
+    registry = _write_registry(cli_repo, _entry(), _entry())
+    result = _run_cli(cli_repo, registry)
+    assert result.returncode == 0, result.stdout
+    assert "legacy duplicate key (last entry wins): probe-key-1" in result.stdout
+
+
+def test_no_duplicate_note_without_duplicates(cli_repo: Path) -> None:
+    registry = _write_registry(cli_repo, _entry(), _REVOCATION)
+    result = _run_cli(cli_repo, registry)
+    assert result.returncode == 0, result.stdout
+    assert "legacy duplicate key" not in result.stdout
