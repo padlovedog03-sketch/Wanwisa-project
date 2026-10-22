@@ -3,22 +3,72 @@
 Status: In Review
 Owner: reviewer
 Upstream: doc/specs/SPEC-verify-tiers-merge-gate-am2-scanner-scope.md
-Author-run: d259245
-Reviewer-run: a4095c6cb10bfbe75
+Author-run: d259245, a0bb7774512557e28
+Reviewer-run: ae7617bb8378a9a55
 Date: 2026-10-22
 
-## Verdict: FAIL
+## Verdict: PASS
+
+Round 2 (re-review after REWORK of AC-AC20): both tiers now refuse a conf that bash 3.2's `bash -n` reports on while exiting 0 (an array open at EOF), with the spec's exact banners and exit codes; a conf whose last line is false still loads; the two new pins are red without the fix.
+
+## Read from
+
+- Upstream: `doc/specs/SPEC-verify-tiers-merge-gate-am2-scanner-scope.md` (Approved), AC-AC20 (line 136) and AM2-R7 (line 212).
+- Change: uncommitted diff in worktree `.claude/worktrees/agent-a0bb7774512557e28` on top of `0fd71b6`: `scripts/verify-full.sh` (+4/-2), `scripts/verify-fast.sh` (+3/-2), `tests/hooks/test_verify_tiers.py` (+29). `git diff --stat` in that worktree shows exactly these 3 files. Both scripts change only the `if` condition and its comment: `if ! conf_err="$("$BASH" -n scripts/verify.conf 2>&1)" || [ -n "$conf_err" ]; then`. The banners, the `printf` of the error and the `exit 1` / `exit 2` lines are unchanged.
+- Round 1 of this review (below, under Review history): FAIL on AC-AC20 only. All other criteria were PASS there and the code behind them is not touched by this diff.
+- Round 1's routing note is resolved: the check is still `bash -n` (its exit status or its output), so the fix stays inside AC-AC20's "The check is `bash -n`" and needs no spec ruling.
+- Not read: the author's conversation. The brief's claims (the fix, and the reason for not refusing on a non-zero load status) were re-run here, not relayed.
+
+## Criteria Review
+
+All commands ran in `/Users/pongsakorn.ni/Desktop/jarvis-framework/.claude/worktrees/agent-a0bb7774512557e28` on 2026-10-22 with `/bin/bash` = `GNU bash, version 3.2.57(1)-release (arm64-apple-darwin24)`, the only bash on PATH (`which -a bash`). "Probe" means a scratch script that calls the test module's own `_full` / `_fast` / `_run` helpers (stubbed copies of the scripts in a temp git repo).
+
+| # | Criterion | Verdict | Evidence (command run in this review) |
+|---|---|---|---|
+| Brief | Verify-with suite | PASS | `python3 -m pytest tests/hooks/test_verify_tiers.py tests/hooks/test_verify_scripts.py tests/hooks/test_regression_verify_tiers_qa.py -q -p no:cacheprovider` → `289 passed in 69.74s`. |
+| AC-AC20 (a) | Broken conf refused, full tier | PASS | Probe, conf `STEPS=(` / `"tests\|echo STEP-RAN"` with no `)`: rc=1, `EXIT GATE RED — scripts/verify.conf failed to load (syntax error); no step was run`, then `scripts/verify.conf: line 1: unexpected EOF while looking for matching `)'`, and no step ran. The same probe also refused, rc=1 with no step run: an unclosed double quote, an unclosed single quote, an unclosed `if`, a stray `fi` and an unclosed `$(`. |
+| AC-AC20 (a) | Broken conf refused, fast tier | PASS | The same six confs in the fast tier: rc=2, `FAST VERIFY REFUSED — scripts/verify.conf failed to load (syntax error)`, and no step ran. |
+| AC-AC20 (b) | False last line still loads | PASS | Probe, full tier: a good conf (`STEPS=('tests\|python3 scripts/stub_junit.py 5 0 0')`, `VERIFY_COLLECT_CMD='echo 5'`) plus a last line `[ -n "${QA_NEVER_SET:-}" ] && VERIFY_STEP_BUDGET_S=600` → rc=0, `counts: reported 5 of 5 collected`, `EXIT GATE GREEN`, the same output as without that line, and no `failed to load`. Fast tier: rc=0, no `failed to load`. Pinned by `test_rt1_a_fast_conf_whose_last_test_is_false_still_loads` and `test_regression_a_conf_whose_last_test_is_false_still_loads` (both in the 289). |
+| AC-AC20 | Author's reason for not refusing on a non-zero load status | Confirmed | `/bin/bash -c ". open.conf; echo source_rc=$?"` → `source_rc=1`; for `X=1` / `[ -n "${NOPE:-}" ] && Y=1` → also `source_rc=1`. The status of `.` cannot tell the two apart, and AC-AC20 requires the second one to load. `/bin/bash -n` gives rc=0 for both; it prints `unexpected EOF while looking for matching `)'` for the first and nothing for the second. So "rc≠0 or any output" separates them, and "load status≠0" cannot. |
+| AC-AC20 | Valid conf not refused | PASS | `/bin/bash -n scripts/verify.conf.example` → rc=0, empty output. Probe with `scripts/verify.conf.example` as the conf: full tier rc=0, `EXIT GATE INCOMPLETE — 3 step(s) not configured: lint format tests`, no `failed to load`; fast tier rc=0, last line `Fill LINT and TEST in scripts/verify-fast.sh.`, no `failed to load`. Comment-only and empty confs are not refused either (probe: full tier rc=0 `EXIT GATE INCOMPLETE`, the pre-existing no-steps result; fast tier rc=0). |
+| AC-AC20 | New tests red without the fix | PASS | `git show HEAD:scripts/verify-full.sh` and `HEAD:scripts/verify-fast.sh` copied over the fixed scripts, tests kept: `python3 -m pytest tests/hooks/test_verify_tiers.py -q -p no:cacheprovider -k array_open_at_eof` → `2 failed, 238 deselected`: full tier `assert 0 == 1` (output contains `Everything configured passed, and that is ALL this run proves.`), fast tier `assert 0 == 2`. The fixed scripts were then restored; `git diff --stat` matched the original 3-file stat. |
+| No other change | Banners and exit codes elsewhere | PASS | `git diff` touches only the two `if` lines and their comments; no `echo`, `exit` or other line changed. |
+| Exit gate | `scripts/verify-full.sh` | INCOMPLETE (as configured) | `scripts/verify-handoff.sh --status` → `not opted in`. `scripts/verify-full.sh` → rc=0: `OK hooks (295s) 1303 passed`, `OK ci-examples (9s) 30 passed`, scar-forge, coordinator and framework OK; `EXIT GATE INCOMPLETE — 3 step(s) not configured: lint format tests`. Round 1's gate-3 ci-examples red is gone on this tree. |
+
+## Defects
+
+None in scope.
+
+## Hostile inputs tried
+
+- The six broken confs above, in both tiers → all refused with the spec's banner and exit code.
+- Here-document with no terminator (`cat <<EOT` / `hello` at EOF) → not refused in either tier: bash 3.2's `bash -n` gives rc=0 and prints nothing. Bash does not call this a syntax error, and AC-AC20 says "the check is `bash -n`", so it is outside the criterion. See Parked.
+- CRLF line endings on a valid conf → not refused (bash accepts the syntax). The full tier ended RED (`record: not written (scripts/verify_record.py exited 1 before writing it)`), so it fails closed; the fast tier ended `FAST VERIFY OK`. Not a syntax error. See Parked.
+- A conf that sets `VERIFY_STEP_BUDGET_S` on a false last line → loads, GREEN, identical to the same conf without it.
+
+## Parked (outside the criteria in scope, rule 4)
+
+- **`scripts/verify-handoff.sh:43` has the round-1 hole.** It checks `if "$BASH" -n scripts/verify.conf 2>/dev/null; then`, by exit status only, so on bash 3.2 an array open at EOF is not marked `broken` there. AC-AC20 names only `verify-full.sh` and `verify-fast.sh`, and that file is not in this brief's Files. For the coordinator.
+- **Unterminated here-document in the conf.** A `<<EOT` with no `EOT` line swallows the rest of the conf as its body, a silent partial load of the same family, and bash 3.2's `bash -n` reports nothing. Proposed LIMIT line, if the coordinator wants one: "The conf syntax check is bash's own `-n`; a here-document left open is not a syntax error to bash 3.2, and the rest of the conf becomes its body."
+- **CRLF conf in the fast tier** loads values with a trailing carriage return and can end `FAST VERIFY OK`. Low; no AC covers it.
+- **Round-1 note still open:** a conf with `[ -n "$NOPE" ] && Y=2` and NOPE unset stops at `unbound variable`. Not re-probed in this round; this diff does not change it.
+
+## Review history
+
+### Round 1 — 2026-10-22, reviewer run `a4095c6cb10bfbe75` (header line read `a4095c6cb10bfbe75`), result FAIL
 
 AC-AC8 (a to d) and AC-AC15, the two criteria QA last failed, now pass. AC-AC20 fails: on macOS's bash 3.2, a conf with an unclosed array is not caught. `bash -n` accepts it, the conf loads only partly, and the full gate ends `EXIT GATE GREEN` with exit 0.
 
-## Read from
+AC-AC8 (a to d) and AC-AC15, the two criteria QA last failed, now pass. AC-AC20 fails: on macOS's bash 3.2, a conf with an unclosed array is not caught. `bash -n` accepts it, the conf loads only partly, and the full gate ends `EXIT GATE GREEN` with exit 0.
+
+#### Read from
 
 - Upstream: `doc/specs/SPEC-verify-tiers-merge-gate-am2-scanner-scope.md` (Approved). It amends `doc/specs/SPEC-verify-tiers-merge-gate.md`, Part A/C. For AC-AC15, the base spec's wording was read (am2 does not rewrite it).
 - Change: squash `d259245` on `feat/top3-tiers-mechanisms-deny`. The code reviewed is the code on HEAD `ef1f717`. Since `d259245`, increments B and D (`7a47d5e` to `4a209d6`) have also touched `scripts/verify_record.py` and `verify-full.sh`, so the review judges what ships now.
 - QA history: `doc/qa/QA-verify-tiers-AC.md`, re-test 1 (at `f441d8d`: 2 FAIL, AC-AC8 and AC-AC15).
 - Not read: the author's conversation. Every claim in the commit message and the am2 `[MEASURED]` markers was re-run here and not relayed.
 
-## Criteria Review
+#### Criteria Review
 
 All commands were run from `/Users/pongsakorn.ni/Desktop/jarvis-framework` on 2026-10-22, unless a scratch repo is named. "check-banned" means `python3 scripts/verify_record.py check-banned …`.
 
@@ -41,13 +91,13 @@ All commands were run from `/Users/pongsakorn.ni/Desktop/jarvis-framework` on 20
 | am2 docs | Limits L1 to L8, ADAPTERS section | PASS | `scripts/verify.conf.example:140-150` names wrappers, variables, eval/-c, `pypy3`/`py`, `pytest3`, verify-fast runtime arguments and `--flake-runs`. `doc/framework/ADAPTERS.md:142` has the heading. `python3 -m pytest tests/framework/test_doc_contracts_ac.py tests/framework/test_neutrality.py -q -p no:cacheprovider` → `15 passed`. QA pins `tests/hooks/test_regression_verify_tiers_qa.py` → `16 passed` (18 minus the 2 retired). |
 | Exit gate | `scripts/verify-full.sh` | RED (outside A+C) | `verify-handoff.sh --status` → `not opted in`. `bash scripts/verify-full.sh` → exit=1, `EXIT GATE RED (exit 1).` `OK hooks (250s) 1303 passed`. `FAIL ci-examples (6s) (exit 1)`. Scar-forge, coordinator and framework OK. Lint, format and tests are `TODO … verified NOTHING`. Every ci-examples failure is a `test_gate_3_*` test that hits placeholder-shaped text in `doc/qa/` reports (`REVIEW-bugfix-gate3-worktree.md`, `QA-bugfix-gate3-worktree.md`, and the untracked `REVIEW-verify-tiers-G-polling.md`). `python3 -m pytest tests/ci/test_ci_examples.py -q -p no:cacheprovider -k "not gate_3"` → `18 passed`. This is not an A+C defect; see Parked. |
 
-## Defects
+#### Defects
 
 | Severity | Description | Where | Back to |
 |---|---|---|---|
 | Medium | **AC-AC20: an unclosed array in `scripts/verify.conf` passes the syntax check, and the conf loads only partly.** Bash 3.2's `-n` returns 0 for an array left open at EOF, while `.` stops with `unexpected EOF while looking for matching ')'`. The source runs as `. scripts/verify.conf \|\| true`, so the failure is swallowed. In the full tier, a conf whose `STEPS=(` lacks its `)` drops everything after it (`VERIFY_TEST_STEPS`, `VERIFY_COLLECT_CMD`), and the gate ends `EXIT GATE GREEN`, exit 0. In the fast tier, the same shape gives exit 0 with `FAST VERIFY INCOMPLETE` instead of `FAST VERIFY REFUSED …` and exit 2. A missing `)` is an ordinary typo, so it is inside the mistakes threat model. Repro: the AC-AC20 row above. The existing pins use only a stray `fi`, which bash 3.2's `-n` does catch, so they stayed green. One possible direction (the author decides): treat sourcing stderr that contains a parse error (`syntax error`, `unexpected EOF`) as a load failure, or source in a subshell first and check for it. Add a pin for `X=(` at EOF in both tiers, and show it red first. | `scripts/verify-full.sh:62-67`, `scripts/verify-fast.sh:33-39` | ai-engineer. **Routing note:** am2's AC-AC20 says "The check is `bash -n`", and the code does exactly that. On bash 3.2 that mechanism cannot meet the AC's Then clause, so any fix adds a check the approved wording does not name. If the coordinator reads "the check is `bash -n`" as exclusive, this needs a spec ruling (ba-sa, then the owner) before the engineer acts. |
 
-## Hostile inputs tried
+#### Hostile inputs tried
 
 - `python -m pytest --LF` → rc=0. Not a bypass: pytest options are case-sensitive, so pytest rejects `--LF` itself.
 - `PYTEST -x` in a test step → rc=0 with `limit: step tests runs no known runner…`. On a case-insensitive macOS filesystem this can still run pytest. It falls under declared limit L4 (name tricks), is stated, and is not a FAIL.
@@ -56,7 +106,7 @@ All commands were run from `/Users/pongsakorn.ni/Desktop/jarvis-framework` on 20
 - Conf whose last line is false (`[ -n "${NOPE:-}" ] && Y=2`) → loads and prints no `failed to load` (AC-AC20's second clause holds).
 - Conf `[ -n "$NOPE" ] && Y=2` with NOPE unset → `NOPE: unbound variable` on stderr, and the conf is cut short. This is the same silent-partial-load family as the defect above. AC-AC20's example names `"$X"` without saying whether X is set, so it is noted here and not filed separately.
 
-## Parked (outside the criteria in scope, rule 4)
+#### Parked (outside the criteria in scope, rule 4)
 
 - **Stale QA record.** `doc/qa/QA-verify-tiers-AC.md` still ends at its re-test 1 FAIL result (AC-AC8, AC-AC15), with no am2 re-test note. Am2 assigns that note to qa ("D14 is retired by this amendment, not fixed"). Yet `d259245`'s message says "Passed QA re-tests under approved amendment am2". The record and the commit disagree. For the coordinator.
 - **Exit gate red from gate-3 report text.** Committed and in-flight `doc/qa/` reports quote placeholder-shaped text, which the gate-3 tests in `tests/ci/test_ci_examples.py` scan. The owner is the gate-3 bugfix line, not A+C. At review time those two files had uncommitted edits by another run (`git status`: ` M doc/qa/QA-bugfix-gate3-worktree.md`, ` M doc/qa/REVIEW-bugfix-gate3-worktree.md`). After those edits, a re-run of `python3 -m pytest tests/ci/test_ci_examples.py -q -p no:cacheprovider` gave `2 failed, 28 passed`, and every remaining hit is in the untracked `doc/qa/REVIEW-verify-tiers-G-polling.md` (lines 37, 39 and 60). This file has no hit: `grep -nE '<[A-Z_]{3,}>'` finds nothing.
@@ -64,4 +114,5 @@ All commands were run from `/Users/pongsakorn.ni/Desktop/jarvis-framework` on 20
 
 ## Approval history
 
-- **2026-10-22 — drafted.** reviewer run `a998e45d25322f524`, from am2, the base spec's AC-AC15, `d259245` as merged into HEAD `ef1f717`, the tests, and probes run in scratch repos. The author's conversation was not read.
+- **2026-10-22 — round 2 drafted.** reviewer (run ID not visible to this run; the coordinator fills `Reviewer-run:`), from am2 AC-AC20, the uncommitted diff in worktree `agent-a0bb7774512557e28` on `0fd71b6`, the tests, and probes through the test module's helpers. The author's conversation was not read.
+- **2026-10-22 — round 1 drafted.** reviewer run `a4095c6cb10bfbe75`, from am2, the base spec's AC-AC15, `d259245` as merged into HEAD `ef1f717`, the tests, and probes run in scratch repos. The author's conversation was not read.
