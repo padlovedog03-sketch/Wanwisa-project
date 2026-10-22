@@ -36,6 +36,7 @@ Usage:  python3 scripts/verify_approvals.py
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -57,7 +58,7 @@ _DEFAULT_REGISTRY = Path.home() / ".jarvis" / "approvals" / "registry.jsonl"
 
 #: Where approvable documents live. `doc/templates/` and `doc/framework/` are
 #: excluded on purpose: templates carry placeholder lines by design.
-_DOC_DIRS = ("doc/requirements", "doc/specs", "doc/architecture", "doc/qa", "doc/tasks")
+_DOC_DIRS = ("doc/requirements", "doc/specs", "doc/architecture", "doc/qa", "doc/tasks", "doc/orders")
 
 # --- The pre-registry cohort -------------------------------------------------
 #
@@ -77,6 +78,10 @@ _PRE_REGISTRY_ARTIFACTS: frozenset[str] = frozenset()
 _APPROVAL_LINE_PATTERN = re.compile(r"^\s*(?:\*\*)?Approval(?:\*\*)?\s*:\s*(.+?)\s*$", re.MULTILINE)
 _STATUS_LINE_PATTERN = re.compile(r"^\s*(?:\*\*)?Status(?:\*\*)?\s*:\s*(.+?)\s*$", re.MULTILINE)
 _REQUIRED_REGISTRY_KEYS = ("key", "artifact", "status", "approved_by", "approved_at")
+#: A non-owner approval's stamp (SPEC-delegated-autonomy ADR-2). Such a key is
+#: in the decision log, not the registry, and resolves through
+#: `autonomy.validate_approval` (ADR-3).
+_APPROVED_UNDER_PATTERN = re.compile(r"^Approved-under:", re.MULTILINE)
 
 
 #: Printed on EVERY run, pass or fail. The framework's own honesty rule (a
@@ -160,6 +165,26 @@ def duplicate_keys(path: Path) -> dict[str, int]:
     return {key: n for key, n in counts.items() if n > 1}
 
 
+def _approved_under(rel: str) -> bool:
+    try:
+        return bool(_APPROVED_UNDER_PATTERN.search((_REPO_ROOT / rel).read_text(encoding="utf-8")))
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _autonomy():  # noqa: ANN202 — returns a module
+    """`scripts/autonomy.py`, loaded from its source by path and only when a
+    document carries a stamp, so a project that never opted in never loads it."""
+    if "autonomy" in sys.modules:
+        return sys.modules["autonomy"]
+    path = Path(__file__).resolve().parent / "autonomy.py"
+    spec = importlib.util.spec_from_file_location("autonomy", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["autonomy"] = module
+    exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)  # noqa: S102 — our own file, by path
+    return module
+
+
 def declared_approvals() -> list[tuple[str, str, str | None]]:
     """(relative path, approval key, status) for every tracked doc that declares one."""
     result = subprocess.run(
@@ -223,7 +248,15 @@ def verify() -> tuple[list[Problem], int, str | None]:
         )
 
     problems: list[Problem] = []
+    log = None
     for artifact, key, status in to_resolve:
+        if _approved_under(artifact):
+            autonomy = _autonomy()
+            log = autonomy.read_log(_REPO_ROOT) if log is None else log
+            verdict = autonomy.validate_approval(_REPO_ROOT, artifact, entries, log)
+            if not verdict.ok:
+                problems.append(Problem(artifact, key, verdict.reason))
+            continue
         entry = entries.get(key)
         if entry is None:
             problems.append(Problem(artifact, key, "key not found in the registry"))

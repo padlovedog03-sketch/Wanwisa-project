@@ -50,6 +50,7 @@ exits 0 — a hook bug must not wedge every spawn.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import sys
@@ -133,6 +134,37 @@ def _read_status(spec_path: Path) -> str | None:
     # Take the leading word only: the pre-B2 corpus decorates the value with
     # parentheticals and, in a few files, whole paragraphs.
     return match.group(1).split("(")[0].strip().rstrip(".").strip()
+
+
+_APPROVED_UNDER_PATTERN = re.compile(r"^Approved-under:", re.MULTILINE)
+
+
+def _stamp_problem(root: Path, path: Path) -> str | None:
+    """Why the `Approved-under:` stamp on `path` does not hold now, or None
+    (also None for an unstamped document). The judgement is the shared
+    validator's (ADR-3), loaded only when a named document carries a stamp,
+    so a project that never opted in never loads it."""
+    try:
+        if not _APPROVED_UNDER_PATTERN.search(path.read_text(encoding="utf-8")):
+            return None
+    except (OSError, UnicodeDecodeError):
+        return None
+    source = root / "scripts" / "autonomy.py"
+    try:
+        if "autonomy" in sys.modules:
+            autonomy = sys.modules["autonomy"]
+        else:
+            spec = importlib.util.spec_from_file_location("autonomy", source)
+            autonomy = importlib.util.module_from_spec(spec)
+            sys.modules["autonomy"] = autonomy
+            exec(compile(source.read_bytes(), str(source), "exec"), autonomy.__dict__)  # noqa: S102 — our own file
+        registry = autonomy.verify_approvals
+        entries, _ = registry.load_registry(registry.registry_path())
+        rel = path.relative_to(root).as_posix()
+        verdict = autonomy.validate_approval(root, rel, entries, autonomy.read_log(root), live=True)
+    except Exception as exc:  # noqa: BLE001 — a stamp nobody can check is not an approval (fail closed)
+        return f"the shared validator could not run ({type(exc).__name__}: {exc})"
+    return None if verdict.ok else verdict.reason
 
 
 def _block(message: str) -> None:
@@ -350,6 +382,16 @@ def main() -> None:
         if not spec_path.is_file():
             problems.append(f"{name}: file not found at {spec_path.relative_to(root)}")
             continue
+        stamp_problem = _stamp_problem(root, spec_path)
+        if stamp_problem:
+            # AM2-AC6: a stamped document that fails the shared validator
+            # blocks, whatever else the brief names.
+            _block(
+                f"BLOCKED (.claude/hooks/guard_agent_spawn.py, A-AC5): {name} is approved under an order, "
+                f"and that approval does not hold now: {stamp_problem}.\n"
+                f"Only the owner can renew it: a new order (scripts/delegate.sh) or an owner approval "
+                f"(scripts/approve.sh) after the stamp is removed."
+            )
         status = _read_status(spec_path)
         if status is None:
             problems.append(f"{name}: no `Status:` line")

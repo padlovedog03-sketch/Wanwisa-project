@@ -24,6 +24,7 @@ CLI:
     python3 scripts/autonomy.py check-commit --message-file F [--protect GLOB ...]
     python3 scripts/autonomy.py log --entry '{"id": ..., "reverse": ...}'   # one decision-log line
     python3 scripts/autonomy.py verify-log --append-only BASE                  # 1 if an earlier line changed
+    python3 scripts/autonomy.py approve-under DOC --order KEY                  # stamp DOC under an owner's order
 
 **Stated limits.** Command matching sees words at command position after
 heredocs are dropped and quotes are parsed. Commands hidden inside a script,
@@ -38,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import importlib.util
 import json
 import os
@@ -46,7 +48,7 @@ import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -440,7 +442,7 @@ _GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--names
 
 #: Subcommands this CLI defines. Anything else run through autonomy.py is an
 #: attempt to reach a capability this file does not grant (AH5).
-AGENT_SUBCOMMANDS = ("items", "status", "check-commit", "log", "verify-log")
+AGENT_SUBCOMMANDS = ("items", "status", "check-commit", "log", "verify-log", "approve-under")
 
 
 @dataclass(frozen=True)
@@ -886,12 +888,15 @@ def classify_artifact(
     changed_paths: list[str],
     config: dict | None = None,
     extra_protected: tuple[str, ...] = (),
+    need_class: bool = True,
 ) -> tuple[str, set[str]]:
     """(derived class, always-human item IDs) for a document and its changes.
 
     Fails closed: a PRD or spec with no `Decision-class:` line, or no rule that
     yields a class, adds `AH-UNSURE`. The header can add a touch; it can never
     remove one that a path proves (ADR-9). Called only under autonomy.
+    `need_class=False` (an order grants by document kind, AM2-ADR-4): a class
+    that cannot be derived is not, on its own, an always-human item.
     """
     config = config or {}
     text = doc.read_text(encoding="utf-8")
@@ -925,7 +930,8 @@ def classify_artifact(
         cls = max(tiers, key=TIERS.index)
     else:
         cls = UNSURE
-        items.add(UNSURE)
+        if need_class:
+            items.add(UNSURE)
 
     for p in paths:
         if is_protected(p, config, extra_protected):
@@ -1267,6 +1273,237 @@ def check_commit(root: Path, message: str, extra_protected: tuple[str, ...] = ()
     return [f"always-human item AH5: {p} is protected while autonomy is active ({why})" for p in hits]
 
 
+# --------------------------------------------------------------------------- approval under an order
+
+#: The stamp a non-owner approval carries (design §A, ADR-2).
+_APPROVED_UNDER = re.compile(r"^Approved-under:\s*(.+?)\s*$", re.MULTILINE)
+_APPROVAL_LINE = re.compile(r"^Approval:\s*(.+?)\s*$", re.MULTILINE)
+#: What each order grant lets the assistant approve, by filename prefix (AM2-ADR-4).
+_KIND_GRANTS = {"PRD": "prd", "SPEC": "spec", "DESIGN": "spec", "QA": "qa", "REVIEW": "qa"}
+_ORDER_GRANTS_AH1 = "business-rules-in-task"
+_OUTSIDE = "outside the order — stop and ask (R42)"
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """Whether a document's approval counts: `basis` is owner | order | none."""
+
+    ok: bool
+    basis: str
+    reason: str
+
+
+def _when(text: object) -> datetime | None:
+    """A timezone-aware timestamp, or None (callers fail closed on None)."""
+    try:
+        value = datetime.fromisoformat(str(text))
+    except ValueError:
+        return None
+    return value if value.tzinfo else None
+
+
+def _project(root: Path) -> str | None:
+    config = root / CONFIG_REL
+    try:
+        text = config.read_text(encoding="utf-8") if config.is_file() else _git_text(root, "show", f"HEAD:{CONFIG_REL}")
+    except (OSError, UnicodeDecodeError):
+        text = None
+    return _slug(text)
+
+
+def _committed_task_sha(root: Path, artifact: str) -> str | None:
+    """SHA-256 of the committed `Task: ` line's bytes, split on `\\n` only, no
+    trimming (AM2-AC5 d). Read as bytes: text mode would fold `\\r\\n`."""
+    try:
+        shown = subprocess.run(
+            ["git", "show", f"HEAD:{artifact}"], cwd=root, capture_output=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if shown.returncode != 0:
+        return None
+    for line in shown.stdout.split(b"\n"):
+        if line.startswith(b"Task: "):
+            return hashlib.sha256(line[len(b"Task: "):]).hexdigest()
+    return None
+
+
+def _order_problem(root: Path, rel: str, key: str, entries: dict[str, dict], at: datetime, live: bool) -> str | None:
+    """Why approving `rel` under order `key` at time `at` does not hold, or None.
+
+    `live`: the order must also be unrevoked now (approve-under, the spawn
+    gate). Otherwise a revocation counts only from its own time, so an
+    approval made before it stays valid (A-AC7)."""
+    entry = entries.get(key)
+    if entry is None or entry.get("kind") != "order":
+        return f"{key} is not a kind order registry entry"
+    revocations = [e for e in entries.values() if e.get("kind") == "revocation" and e.get("revokes") == key]
+    if any(live or _when(e.get("approved_at")) is None or _when(e.get("approved_at")) <= at for e in revocations):
+        return f"order {key} revoked"
+    expires = str(entry.get("expires", ""))[:10]
+    if not expires or at.date().isoformat() > expires:
+        return f"order {key} expired on {expires or '(no expiry)'}"
+    artifact = _normalise(str(entry.get("artifact", "")))
+    if not entry.get("task_sha256") or _committed_task_sha(root, artifact) != entry.get("task_sha256"):
+        return f"order document not committed as issued ({artifact} at HEAD does not carry the owner's task)"
+    if rel in (artifact, CONFIG_REL):
+        return f"{rel} is never approved under an order (AH5)"
+    project = _project(root)
+    prefix = f"ORDER-{project}-"
+    order_stem = Path(artifact).stem
+    if not project or not order_stem.startswith(prefix):
+        return f"order document {artifact} does not name this project's order"
+    slug = order_stem[len(prefix):]
+    kind, _, rest = Path(rel).stem.partition("-")
+    grants = entry.get("grants") or []
+    if f"-{slug}-" not in f"-{rest}-":
+        return f"{_OUTSIDE}: {Path(rel).name} does not carry the order slug {slug}"
+    if _KIND_GRANTS.get(kind) not in grants:
+        return f"{_OUTSIDE}: a {kind} document needs a grant the order {key} does not give"
+    if not (root / rel).is_file():
+        return f"{rel} not found"
+    try:
+        config = load_config(root)
+    except ConfigError:
+        config = {}
+    try:
+        _, items = classify_artifact(root / rel, [rel], config, need_class=False)
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"{rel} unreadable ({type(exc).__name__})"
+    if _ORDER_GRANTS_AH1 in grants:
+        items.discard("AH1")
+    if items:
+        return f"{rel} touches always-human item(s) {', '.join(sorted(items))}"
+    return None
+
+
+def read_log(root: Path) -> list[dict]:
+    """The decision log's entries; a line that does not parse is skipped, so
+    nothing it might have said can support a stamp."""
+    try:
+        lines = (root / LOG_REL).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    entries = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries
+
+
+def validate_approval(root: Path, rel: str, entries: dict[str, dict], log: list[dict], live: bool = False) -> Verdict:
+    """The one validator (ADR-3) for a document's `Approved-under:` stamp.
+
+    Order basis only (the mandate basis waits for A-AC1). A document without
+    the stamp is the owner's, checked by `verify_approvals.py` as before.
+    `live=True` (the spawn gate): the order must also be unrevoked and
+    unexpired now; verification judges the approval at its own time."""
+    try:
+        text = (root / rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return Verdict(False, "none", f"unreadable ({type(exc).__name__})")
+    stamp = _APPROVED_UNDER.search(text)
+    if stamp is None:
+        return Verdict(True, "owner", "")
+    basis, _, key = stamp.group(1).replace("`", "").partition(" ")
+    key = key.strip()
+    if basis != "order" or not key:
+        return Verdict(False, "none", f"approved-under basis {stamp.group(1)!r} is not `order <key>`")
+    approval = _APPROVAL_LINE.search(text)
+    akey = approval.group(1).replace("`", "").strip() if approval else ""
+    found = [
+        e for e in log
+        if e.get("kind") == "approval" and e.get("id") == akey and e.get("artifact") == rel
+        and e.get("under") == f"order {key}"
+    ]
+    if not akey or not found:
+        return Verdict(False, "order", "approved-under stamp has no decision-log entry")
+    at = _when(found[-1].get("ts"))
+    if at is None:
+        return Verdict(False, "order", "the decision-log entry has no readable timestamp")
+    # Live first, so a revoked or expired order is named as such.
+    problem = _order_problem(root, rel, key, entries, datetime.now().astimezone(), live=True) if live else None
+    problem = problem or _order_problem(root, rel, key, entries, at, live=False)
+    return Verdict(problem is None, "order", problem or "")
+
+
+def approve_under(root: Path, doc: str, key: str) -> tuple[int, str]:
+    """(exit code, message): stamp `doc` Approved under order `key` and append
+    one `approval` decision-log entry (AM2-AC5). No registry line is written."""
+    approve = _load_from_source("approve", Path(__file__).resolve().parent / "approve.py")
+    try:
+        rel = (Path.cwd() / doc).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return 2, f"{doc} is outside this repository"
+    entries, _ = verify_approvals.load_registry(verify_approvals.registry_path())
+    inactive = status(root) == "inactive"
+    if inactive and (entries.get(key) or {}).get("kind") != "order":
+        return 2, "no active mandate or order"
+    now = datetime.now().astimezone()
+    problem = _order_problem(root, rel, key, entries, now, live=True)
+    if problem:
+        return 2, problem
+    if inactive:
+        return 2, "no active mandate or order"
+    try:
+        config = load_config(root)
+    except ConfigError:
+        config = {}
+    if current_branch(root) in protected_branches(config):
+        return 2, "work under autonomy happens on a branch or worktree"
+    if not any(rel.startswith(f"{d}/") for d in verify_approvals._DOC_DIRS):
+        return 2, f"{rel} is not in a document folder ({', '.join(verify_approvals._DOC_DIRS)})"
+    if _git_text(root, "ls-files", "--error-unmatch", "--", rel) is None:
+        return 2, f"{rel} is not tracked by git — `git add` it first, or no check can see the stamp"
+    path = root / rel
+    text = path.read_text(encoding="utf-8")
+    try:
+        current = approve.read_status(text, rel)
+    except approve.ApprovalError as exc:
+        return 2, str(exc)
+    if current != approve.APPROVABLE_FROM or _APPROVED_UNDER.search(text):
+        return 2, f"{rel} is `Status: {current}` — only an `{approve.APPROVABLE_FROM}` document is approved"
+    if not approve.SECTION_LINE.search(text):
+        return 2, f"{rel} has no `{approve.REQUIRED_SECTION}` section to record the approval in"
+
+    today = now.strftime("%Y-%m-%d")
+    log = read_log(root)
+    akey = approve.revise(approve.build_key(rel, today), {str(e.get("id")) for e in log} | set(entries))
+    cls, _ = classify_artifact(path, [rel], config, need_class=False)
+    entry = {
+        "id": akey,
+        "ts": now.isoformat(timespec="seconds"),
+        "project": _project(root) or "",
+        "kind": "approval",
+        "class": cls,
+        "under": f"order {key}",
+        "artifact": rel,
+        "options": ["approve under the order", "stop and ask the owner"],
+        "choice": "approve under the order",
+        "why": f"inside order {key}: its slug and grants cover this document and it touches no always-human item",
+        "reverse": f"remove stamp {rel}",
+    }
+    problems = log_problems(entry)
+    if problems:
+        return 2, "; ".join(problems)
+    text = approve.STATUS_LINE.sub(
+        f"Status: {approve.APPROVED}\nApproval: {akey}\nApproved-under: order {key}", text, count=1
+    )
+    text = approve.SECTION_LINE.sub(
+        f"{approve.REQUIRED_SECTION}\n\n- **{today} — approved under order {key} (assistant).** "
+        f"Decision-log entry `{akey}` in {LOG_REL}.",
+        text,
+        count=1,
+    )
+    path.write_text(text, encoding="utf-8")
+    append_log(root, entry)
+    return 0, f"approved under order {key}: {rel}  key={akey}"
+
+
 # --------------------------------------------------------------------------- CLI
 
 
@@ -1282,8 +1519,17 @@ def main(argv: list[str] | None = None) -> int:
     log.add_argument("--entry", required=True, help="the entry, one JSON object")
     verify = sub.add_parser("verify-log", help="the decision log only grows at the end since a base")
     verify.add_argument("--append-only", required=True, metavar="BASE", help="the base commit to compare HEAD with")
+    under = sub.add_parser("approve-under", help="approve one document under the owner's task order")
+    under.add_argument("doc", help="the document, e.g. doc/specs/SPEC-<slug>.md")
+    under.add_argument("--order", required=True, help="the order's registry key")
     args = parser.parse_args(argv)
     root = project_root()
+
+    if args.command == "approve-under":
+        code, message = approve_under(root, args.doc, args.order)
+        print(f"approve-under: {message}" if code == 0 else f"approve-under: refused — {message}",
+              file=sys.stderr if code else sys.stdout)
+        return code
 
     if args.command == "log":
         try:

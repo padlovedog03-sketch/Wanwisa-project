@@ -35,14 +35,28 @@ steps:
       python3 - <<'PY'
       import json, pathlib, re, sys
 
-      keys = set()
+      keys = {}
       for line in open('/tmp/registry.jsonl', encoding='utf-8'):
           line = line.strip()
           if line:
-              keys.add(json.loads(line)['key'])
+              entry = json.loads(line)
+              keys[entry['key']] = entry.get('kind', 'approval')
+
+      # An approval made under an order: its key is a decision-log entry, not a
+      # registry line. The full checks run in scripts/verify_approvals.py.
+      log = []
+      log_path = pathlib.Path('doc/decisions/decision-log.jsonl')
+      if log_path.is_file():
+          for line in log_path.read_text(encoding='utf-8').splitlines():
+              try:
+                  log.append(json.loads(line))
+              except ValueError:
+                  pass
 
       status_re = re.compile(r'^Status:\s*(.+?)\s*$', re.M)
       approval_re = re.compile(r'^Approval:\s*(.+?)\s*$', re.M)
+      under_re = re.compile(r'^Approved-under:\s*(\S+)\s+(\S+)\s*$', re.M)
+      provisional_re = re.compile(r'^Provisional:', re.M)
 
       problems = []
       for path in sorted(pathlib.Path('doc').rglob('*.md')):
@@ -53,8 +67,18 @@ steps:
           if not status or status.group(1) not in {'Approved', 'Done'}:
               continue
           approval = approval_re.search(text)
-          if not approval:
+          under = under_re.search(text)
+          if provisional_re.search(text):
+              problems.append(f'{path}: Status {status.group(1)} with a Provisional: line')
+          elif not approval:
               problems.append(f'{path}: Status {status.group(1)} with no Approval: line')
+          elif under:
+              basis, key = under.groups()
+              if not any(isinstance(e, dict) and e.get('kind') == 'approval' and e.get('id') == approval.group(1)
+                         and e.get('artifact') == path.as_posix() for e in log):
+                  problems.append(f'{path}: Approval key {approval.group(1)!r} has no decision-log approval entry')
+              elif keys.get(key) != basis:
+                  problems.append(f'{path}: Approved-under key {key!r} is not in the registry as kind {basis}')
           elif approval.group(1) not in keys:
               problems.append(f'{path}: Approval key {approval.group(1)!r} is not in the registry')
 

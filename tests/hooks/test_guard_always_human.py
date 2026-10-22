@@ -499,15 +499,17 @@ def test_a_malformed_project_file_keeps_the_framework_rules_on(
     assert _run_guard("git status", cwd=repo, registry=registry).returncode == _EXIT_ALLOW
 
 
-# --------------------------------------------------------------------------- AM2-AC8 (log, verify-log)
+# --------------------------------------------------------------------------- AM2-AC8 (log, verify-log, approve-under)
 # SPEC-delegated-autonomy-am2-task-orders-scope AM2-AC8: under a live order the
 # guard lets the agent run each row-5 subcommand as it ships. Increment 2 ships
-# `log` and `verify-log`; an undefined subcommand stays refused as AH5.
+# `log` and `verify-log`, increment 4 `approve-under`; an undefined subcommand
+# stays refused as AH5.
 
 _SHIPPED_SUBCOMMANDS = [
     "python3 scripts/autonomy.py log --entry '{\"id\": \"d-1\", \"why\": \"a; b > c\"}'",
     "python3 scripts/autonomy.py verify-log --append-only main",
     'python3 -I scripts/autonomy.py verify-log --append-only "$(git merge-base origin/main HEAD)"',
+    "python3 scripts/autonomy.py approve-under doc/specs/SPEC-x.md --order order-p-first-2026-10-22",
 ]
 
 

@@ -325,6 +325,95 @@ def test_gate_1_ignores_templates_and_framework_directories(tmp_path: Path) -> N
 
 
 # ---------------------------------------------------------------------------
+# Gate 1 and approval under an order (SPEC-delegated-autonomy A-AC5 (2), with
+# DESIGN-delegated-autonomy §"CI gate 1"). A stamped document's key lives in
+# the decision log, not the registry: gate 1 accepts it only when the log has a
+# `kind: approval` entry for that key and artifact, and the order key is in
+# the registry with kind `order`. A `Provisional:` document is never Approved.
+# The full checks (grants, expiry, revocation, task hash) are
+# `verify_approvals.py`'s, through the shared validator.
+# ---------------------------------------------------------------------------
+
+_G1_ORDER = "order-proj-first-2026-10-22"
+_G1_DOC = "doc/specs/SPEC-first.md"
+_G1_KEY = "spec-first-2026-10-22"
+
+
+def _g1_registry(kind: str | None = "order") -> str:
+    entry = {"key": _G1_ORDER, "artifact": "doc/orders/ORDER-proj-first.md", "status": "Approved",
+             "approved_by": "o", "approved_at": "2026-10-22T00:00:00+00:00"}
+    if kind:
+        entry["kind"] = kind
+    return json.dumps(entry) + "\n"
+
+
+def _g1_stamped(tmp_path: Path, *, log: dict | None) -> None:
+    specs = tmp_path / "doc" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "SPEC-first.md").write_text(
+        f"Status: Approved\nApproval: {_G1_KEY}\nApproved-under: order {_G1_ORDER}\n\n## Approval history\n",
+        encoding="utf-8",
+    )
+    if log is not None:
+        (tmp_path / "doc" / "decisions").mkdir(parents=True)
+        (tmp_path / "doc" / "decisions" / "decision-log.jsonl").write_text(json.dumps(log) + "\n", encoding="utf-8")
+
+
+def _g1_entry(**overrides: str) -> dict:
+    return {"id": _G1_KEY, "kind": "approval", "under": f"order {_G1_ORDER}", "artifact": _G1_DOC, **overrides}
+
+
+def test_gate_1_passes_a_document_approved_under_an_order(tmp_path: Path) -> None:
+    """Red on the gate before A-AC5 (2): the stamp's key is in the log, never
+    the registry, so every legitimate order approval turned CI red."""
+    _g1_stamped(tmp_path, log=_g1_entry())
+    result = _run_gate_1(tmp_path, tmp_path, registry_content=_g1_registry())
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("log", "kind", "reason"),
+    [
+        (None, "order", "no decision-log approval entry"),  # A-AC5: hand-edited, no log line
+        ({"kind": "decision"}, "order", "no decision-log approval entry"),
+        ({"artifact": "doc/specs/SPEC-other.md"}, "order", "no decision-log approval entry"),
+        ({"id": "spec-other-2026-10-22"}, "order", "no decision-log approval entry"),
+        ({}, "approval", "not in the registry as kind order"),
+        ({}, None, "not in the registry as kind order"),
+    ],
+)
+def test_gate_1_stays_red_for_a_forged_order_stamp(tmp_path: Path, log: dict | None, kind: str | None,
+                                                    reason: str) -> None:
+    _g1_stamped(tmp_path, log=None if log is None else _g1_entry(**log))
+    result = _run_gate_1(tmp_path, tmp_path, registry_content=_g1_registry(kind))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _G1_DOC in result.stderr
+    assert reason in result.stderr
+
+
+def test_gate_1_stays_red_for_an_order_stamp_with_no_registry(tmp_path: Path) -> None:
+    _g1_stamped(tmp_path, log=_g1_entry())
+    result = _run_gate_1(tmp_path, tmp_path, registry_content="")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "not in the registry as kind order" in result.stderr
+
+
+def test_gate_1_refuses_an_approved_document_that_is_provisional(tmp_path: Path) -> None:
+    specs = tmp_path / "doc" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "SPEC-real.md").write_text(
+        "Status: Approved\nApproval: spec-real-2026-08-12\nProvisional: d-1\n\n## Approval history\n",
+        encoding="utf-8",
+    )
+    registry = json.dumps({"key": "spec-real-2026-08-12", "artifact": "doc/specs/SPEC-real.md", "status": "Approved",
+                           "approved_by": "t", "approved_at": "2026-08-12T00:00:00+00:00"}) + "\n"
+    result = _run_gate_1(tmp_path, tmp_path, registry_content=registry)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "doc/specs/SPEC-real.md" in result.stderr
+    assert "Provisional" in result.stderr
+
+
+# ---------------------------------------------------------------------------
 # Gate 3 — no leftover placeholders. Executed for real against this repo's
 # ACTUAL current state (red, because it has not been bootstrapped — this
 # template repo IS its own "fresh clone") and again after running

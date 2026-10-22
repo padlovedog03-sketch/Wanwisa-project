@@ -23,9 +23,11 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import unicodedata
 import subprocess
 import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -992,3 +994,144 @@ def test_the_guard_and_rule_6_read_files_the_same_way(case: str) -> None:
         assert (guard, lint) == (False, True), case
     else:
         assert guard == lint, case
+
+
+# ---------------------------------------------------------------------------
+# AM2-AC6 (= A-AC5 (3), A-AC7's spawn half), SPEC-delegated-autonomy-am2-task-
+# orders-scope: a named document stamped `Approved-under: order <key>` that
+# fails the shared validator blocks an engineer spawn, even when the brief also
+# names an owner-approved spec. The guard judges the order as it stands NOW:
+# a revoked or expired order blocks, though `verify_approvals.py` still passes
+# an approval made before the revocation. Hermetic: the hook and scripts run
+# from copies in a throwaway repo; the registry lives in `tmp_path`.
+# ---------------------------------------------------------------------------
+
+_AU_TODAY = date.today().isoformat()
+_AU_KEY = f"order-proj-first-{_AU_TODAY}"
+_AU_SPEC = "doc/specs/SPEC-first.md"
+_AU_PARENT = "doc/specs/SPEC-parent.md"
+_AU_LOG = "doc/decisions/decision-log.jsonl"
+_AU_SCRIPTS = ("approve.py", "approve.sh", "delegate.sh", "revoke.sh", "autonomy.py", "verify_approvals.py",
+               "check_fix_has_test.py", "verify-merge.sh")
+
+
+def _au_git(repo: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, env=env, check=False)
+
+
+@pytest.fixture
+def stamped_repo(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """An opted-in repo on `feature/x`: an owner-approved parent spec, the
+    order `first` committed by the owner, and `SPEC-first.md` approved under it."""
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / ".githooks").mkdir()
+    (repo / ".claude" / "hooks").mkdir(parents=True)
+    (repo / "doc" / "templates").mkdir(parents=True)
+    (repo / "doc" / "specs").mkdir(parents=True)
+    for name in _AU_SCRIPTS:
+        shutil.copy2(_REPO_ROOT / "scripts" / name, repo / "scripts" / name)
+    shutil.copy2(_SPAWN_GATE, repo / ".claude" / "hooks" / "guard_agent_spawn.py")
+    shutil.copy2(_REPO_ROOT / ".githooks" / "commit-msg", repo / ".githooks" / "commit-msg")
+    shutil.copy2(_REPO_ROOT / "doc" / "templates" / "order.md", repo / "doc" / "templates" / "order.md")
+    (repo / "scripts" / "autonomy.json").write_text('{"project": "proj"}\n', encoding="utf-8")
+    (repo / _AU_PARENT).write_text("# parent\n\nStatus: Approved\nApproval: spec-parent-2026-01-01\n", encoding="utf-8")
+    (repo / _AU_SPEC).write_text(
+        "# first\n\nStatus: In Review\nUpstream: x\nDecision-class: tier-1; touches: none\n\n## Approval history\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "registry.jsonl").write_text(json.dumps(
+        {"key": "spec-parent-2026-01-01", "artifact": _AU_PARENT, "status": "Approved", "approved_by": "o",
+         "approved_at": "2026-01-01T00:00:00+00:00"}) + "\n", encoding="utf-8")
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(tmp_path / "home"),
+           "APPROVAL_LOG": str(tmp_path / "registry.jsonl"), "GIT_AUTHOR_NAME": "t",
+           "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test"}
+    assert _au_git(repo, env, "init", "-q", "-b", "feature/x").returncode == 0
+    _au_git(repo, env, "config", "core.hooksPath", ".githooks")
+    _au_git(repo, env, "add", "-A")
+    assert _au_git(repo, env, "commit", "-q", "-m", "base").returncode == 0
+    until = (date.today() + timedelta(days=30)).isoformat()
+    issued = subprocess.run(["bash", "scripts/delegate.sh", "build it", "--by", "o", "--until", until,
+                             "--slug", "first"], cwd=repo, capture_output=True, text=True, env=env, check=False)
+    assert issued.returncode == 0, issued.stderr
+    assert _au_git(repo, env, "commit", "-q", "-m", "order", "-m", f"Owner-Approved: {_AU_KEY}").returncode == 0
+    under = subprocess.run([sys.executable, "-I", "scripts/autonomy.py", "approve-under", _AU_SPEC, "--order",
+                            _AU_KEY], cwd=repo, capture_output=True, text=True, env=env, check=False)
+    assert under.returncode == 0, under.stderr
+    return repo, env
+
+
+def _au_spawn(repo: Path, env: dict[str, str], *docs: str) -> subprocess.CompletedProcess[str]:
+    prompt = "Implement it.\n" + "".join(f"Context: {d}\n" for d in docs) + "Tier: 1 — test\nFiles: x\n"
+    payload = json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "ai-engineer", "prompt": prompt}})
+    return subprocess.run([sys.executable, str(repo / ".claude" / "hooks" / "guard_agent_spawn.py")], input=payload,
+                          cwd=repo, capture_output=True, text=True, env=env, timeout=30, check=False)
+
+
+def _au_registry(env: dict[str, str], entry: dict) -> None:
+    with Path(env["APPROVAL_LOG"]).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
+
+
+def test_a_spec_approved_under_a_live_order_opens_the_engineer_gate(
+    stamped_repo: tuple[Path, dict[str, str]],
+) -> None:
+    repo, env = stamped_repo
+    result = _au_spawn(repo, env, _AU_PARENT, _AU_SPEC)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+def test_owner_approved_documents_alone_behave_as_before(stamped_repo: tuple[Path, dict[str, str]]) -> None:
+    """A-AC8: a brief naming only owner-approved documents is unchanged."""
+    repo, env = stamped_repo
+    assert _au_spawn(repo, env, _AU_PARENT).returncode == _EXIT_ALLOW
+
+
+def test_a_revoked_order_blocks_the_spawn_though_the_approval_still_verifies(
+    stamped_repo: tuple[Path, dict[str, str]],
+) -> None:
+    """The red-first case: today a brief naming the approved parent plus a
+    revoked-order spec opens the gate. The revocation is dated after the
+    approval, so the record stays valid for `verify_approvals.py` (A-AC7)
+    while the guard refuses to start new work under it."""
+    repo, env = stamped_repo
+    later = (datetime.now().astimezone() + timedelta(minutes=1)).isoformat(timespec="seconds")
+    _au_registry(env, {"key": f"revoke-{_AU_KEY}-{_AU_TODAY}", "artifact": "doc/orders/ORDER-proj-first.md",
+                       "status": "Revoked", "approved_by": "o", "approved_at": later, "kind": "revocation",
+                       "revokes": _AU_KEY})
+    result = _au_spawn(repo, env, _AU_PARENT, _AU_SPEC)
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert "SPEC-first.md" in result.stderr
+    assert f"order {_AU_KEY} revoked" in result.stderr
+
+    verified = subprocess.run([sys.executable, str(repo / "scripts" / "verify_approvals.py")], cwd=repo,
+                              capture_output=True, text=True, env=env, check=False)
+    assert verified.returncode == 0, verified.stdout
+
+
+def test_a_stamp_with_no_log_entry_blocks_the_spawn(stamped_repo: tuple[Path, dict[str, str]]) -> None:
+    """A-AC5 (3): the self-approval case, through the same validator."""
+    repo, env = stamped_repo
+    (repo / _AU_LOG).write_text("", encoding="utf-8")
+    result = _au_spawn(repo, env, _AU_PARENT, _AU_SPEC)
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert "SPEC-first.md" in result.stderr
+    assert "approved-under stamp has no decision-log entry" in result.stderr
+
+
+def test_a_stamp_under_an_expired_order_blocks_the_spawn(stamped_repo: tuple[Path, dict[str, str]]) -> None:
+    repo, env = stamped_repo
+    old = "order-proj-old-2026-01-01"
+    _au_registry(env, {"key": old, "artifact": "doc/orders/ORDER-proj-old.md", "status": "Approved",
+                       "approved_by": "o", "approved_at": "2026-01-01T00:00:00+00:00", "kind": "order",
+                       "grants": ["spec"], "expires": "2026-01-31", "task_sha256": "0" * 64})
+    (repo / "doc" / "specs" / "SPEC-old.md").write_text(
+        f"# old\n\nStatus: Approved\nApproval: spec-old\nApproved-under: order {old}\n", encoding="utf-8"
+    )
+    with (repo / _AU_LOG).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"id": "spec-old", "ts": "2026-01-02T00:00:00+00:00", "kind": "approval",
+                                 "under": f"order {old}", "artifact": "doc/specs/SPEC-old.md"}) + "\n")
+    result = _au_spawn(repo, env, _AU_PARENT, "doc/specs/SPEC-old.md")
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert "SPEC-old.md" in result.stderr
+    assert "expired" in result.stderr
