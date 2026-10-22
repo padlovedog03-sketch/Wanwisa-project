@@ -302,6 +302,189 @@ def test_a_merge_while_on_a_protected_branch_is_refused(tmp_path: Path) -> None:
     assert "always-human item AH3" in result.stderr
 
 
+# --------------------------------------------------------------------------- F-AC1 (commit half)
+
+_ON_A_BRANCH = "work under autonomy happens on a branch or worktree"
+_ORDER_KEY = "order-proj-first-2026-10-20"
+
+
+def _project_on(tmp_path: Path, branch: str, *, entry: dict | None, config: dict = _CONFIG) -> tuple[Path, Path]:
+    """A repo on `branch`, opted in with `config`, and a registry holding `entry` (none = empty)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo, branch=branch)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "autonomy.json").write_text(json.dumps(config), encoding="utf-8")
+    registry = tmp_path / "registry.jsonl"
+    registry.write_text(json.dumps(entry) + "\n" if entry else "", encoding="utf-8")
+    return repo, registry
+
+
+_ORDER_ENTRY = _registry_entry(key=_ORDER_KEY, kind="order", artifact="doc/orders/ORDER-proj-first.md")
+_ABSENCE_ENTRY = {
+    "key": "absence-proj-2026-10-20",
+    "artifact": "",
+    "status": "Approved",
+    "approved_by": "owner",
+    "approved_at": "2026-10-20T09:00:00+07:00",
+    "kind": "absence",
+    "until": "2099-12-31",
+}
+
+
+@pytest.mark.parametrize(
+    ("branch", "entry", "config"),
+    [
+        ("main", _registry_entry(), _CONFIG),
+        ("master", _registry_entry(), _CONFIG),
+        ("main", _ORDER_ENTRY, _CONFIG),
+        ("release", _ORDER_ENTRY, {**_CONFIG, "protected_branches": ["release"]}),
+        ("main", _ABSENCE_ENTRY, _CONFIG),
+    ],
+    ids=["mandate-main", "mandate-master", "order-main", "order-project-listed-branch", "absence-main"],
+)
+@pytest.mark.parametrize("command", ["git commit -m x", "git -c user.name=a commit -qm x", "git add . && git commit -m x"])
+def test_a_commit_on_a_protected_branch_is_refused_under_autonomy(
+    command: str, branch: str, entry: dict, config: dict, tmp_path: Path
+) -> None:
+    repo, registry = _project_on(tmp_path, branch, entry=entry, config=config)
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_BLOCK, f"{command!r} on {branch} allowed: {result.stderr}"
+    assert _ON_A_BRANCH in result.stderr
+    assert branch in result.stderr
+
+
+def test_a_commit_on_a_working_branch_is_allowed_under_autonomy(tmp_path: Path) -> None:
+    repo, registry = _project_on(tmp_path, "feature/x", entry=_ORDER_ENTRY)
+    result = _run_guard("git commit -m x", cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+def _worktree_on(repo: Path, branch: str, path: Path) -> None:
+    """Commit the project file first, as a real project has, so the worktree is opted in too."""
+    subprocess.run(["git", "add", "scripts/autonomy.json"], cwd=repo, check=True, timeout=30)
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.test", "-c", "user.name=t", "commit", "-qm", "opt in"],
+        cwd=repo,
+        check=True,
+        timeout=30,
+    )
+    subprocess.run(["git", "worktree", "add", "-q", "-b", branch, str(path)], cwd=repo, check=True, timeout=30)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    ["cd {wt} && git commit -m x", "cd {wt}; git commit -m x", "git -C {wt} commit -m x", "cd ../wt && git commit -m x"],
+)
+def test_a_commit_in_a_worktree_on_a_working_branch_is_allowed_from_main(spelling: str, tmp_path: Path) -> None:
+    """The refusal's own advice must work: commit where the commit lands, not where the hook runs."""
+    repo, registry = _project_on(tmp_path, "main", entry=_ORDER_ENTRY)
+    worktree = tmp_path / "wt"
+    _worktree_on(repo, "wip/x", worktree)
+    command = spelling.format(wt=worktree)
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, f"{command!r}: {result.stderr}"
+
+
+@pytest.mark.parametrize("spelling", ["cd {main} && git commit -m x", "git -C {main} commit -m x"])
+def test_a_commit_aimed_at_main_from_a_worktree_is_refused(spelling: str, tmp_path: Path) -> None:
+    repo, registry = _project_on(tmp_path, "main", entry=_ORDER_ENTRY)
+    worktree = tmp_path / "wt"
+    _worktree_on(repo, "wip/x", worktree)
+    command = spelling.format(main=repo)
+    result = _run_guard(command, cwd=worktree, registry=registry)
+    assert result.returncode == _EXIT_BLOCK, f"{command!r} allowed: {result.stderr}"
+    assert _ON_A_BRANCH in result.stderr
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "cd /nonexistent-f-ac1; git commit -m x",
+        "cd /nonexistent-f-ac1 && git commit -m x",
+        "git -C /nonexistent-f-ac1 commit -m x",
+        "(cd {wt} && git commit -m x); git commit -m y",
+        "(cd {wt}; git commit -m x) && git commit -m y",
+        "( cd {wt} ) ; git commit -m y",
+    ],
+)
+def test_a_commit_that_does_not_land_in_the_worktree_is_judged_on_main(spelling: str, tmp_path: Path) -> None:
+    """A failed `cd`, an unreadable target, or a `cd` scoped to a subshell must
+    not move the judged directory off the protected branch."""
+    repo, registry = _project_on(tmp_path, "main", entry=_ORDER_ENTRY)
+    worktree = tmp_path / "wt"
+    _worktree_on(repo, "wip/x", worktree)
+    command = spelling.format(wt=worktree)
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_BLOCK, f"{command!r} allowed: {result.stderr}"
+    assert _ON_A_BRANCH in result.stderr
+
+
+def test_a_failed_cd_does_not_move_a_relative_git_dash_c(tmp_path: Path) -> None:
+    """From repo/sub: the `cd` fails, so `-C ..` lands in the main checkout —
+    not in the worktree the missing path was named under."""
+    repo, registry = _project_on(tmp_path, "main", entry=_ORDER_ENTRY)
+    worktree = tmp_path / "wt"
+    _worktree_on(repo, "wip/x", worktree)
+    (repo / "sub").mkdir()
+    command = f"cd {worktree}/missing; git -C .. commit -m x"
+    result = _run_guard(command, cwd=repo / "sub", registry=registry)
+    assert result.returncode == _EXIT_BLOCK, f"{command!r} allowed: {result.stderr}"
+    assert _ON_A_BRANCH in result.stderr
+
+
+def test_a_commit_inside_a_subshell_cd_to_the_worktree_is_allowed(tmp_path: Path) -> None:
+    repo, registry = _project_on(tmp_path, "main", entry=_ORDER_ENTRY)
+    worktree = tmp_path / "wt"
+    _worktree_on(repo, "wip/x", worktree)
+    result = _run_guard(f"(cd {worktree} && git commit -m x)", cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+def test_a_commit_on_an_unborn_main_is_refused_under_autonomy(tmp_path: Path) -> None:
+    """No commits yet: `rev-parse --abbrev-ref HEAD` fails, the branch is still main."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True, timeout=30)
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "autonomy.json").write_text(json.dumps(_CONFIG), encoding="utf-8")
+    registry = tmp_path / "registry.jsonl"
+    registry.write_text(json.dumps(_ORDER_ENTRY) + "\n", encoding="utf-8")
+    result = _run_guard("git commit -m x", cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_BLOCK, result.stderr
+    assert _ON_A_BRANCH in result.stderr
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [None, _registry_entry(expires="2000-01-01")],
+    ids=["no-order-or-mandate", "expired-mandate"],
+)
+def test_a_commit_on_main_is_allowed_without_live_autonomy(entry: dict | None, tmp_path: Path) -> None:
+    """A-AC8: with no live order or mandate the guard behaves exactly as before."""
+    repo, registry = _project_on(tmp_path, "main", entry=entry)
+    result = _run_guard("git commit -m x", cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+def test_a_commit_on_main_is_allowed_in_a_project_that_never_opted_in(tmp_path: Path) -> None:
+    """A-AC8: no autonomy.json, no mandate or order folder — today's behaviour."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo, branch="main")
+    registry = tmp_path / "registry.jsonl"
+    registry.write_text(json.dumps(_registry_entry()) + "\n", encoding="utf-8")
+    result = _run_guard("git commit -m x", cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
+@pytest.mark.parametrize("command", ['echo "git commit -m x"', "git log --grep commit", "git status"])
+def test_mentioning_a_commit_on_main_is_allowed_under_autonomy(command: str, tmp_path: Path) -> None:
+    repo, registry = _project_on(tmp_path, "main", entry=_registry_entry())
+    result = _run_guard(command, cwd=repo, registry=registry)
+    assert result.returncode == _EXIT_ALLOW, result.stderr
+
+
 def test_a_malformed_project_file_keeps_the_framework_rules_on(
     active_project: tuple[Path, Path],
 ) -> None:
