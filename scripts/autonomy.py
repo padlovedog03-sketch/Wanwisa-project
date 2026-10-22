@@ -22,6 +22,8 @@ CLI:
     python3 scripts/autonomy.py items          # the list, with project additions
     python3 scripts/autonomy.py status         # inactive | mandate <k> | order <k> | absence since <t>
     python3 scripts/autonomy.py check-commit --message-file F [--protect GLOB ...]
+    python3 scripts/autonomy.py log --entry '{"id": ..., "reverse": ...}'   # one decision-log line
+    python3 scripts/autonomy.py verify-log --append-only BASE                  # 1 if an earlier line changed
 
 **Stated limits.** Command matching sees words at command position after
 heredocs are dropped and quotes are parsed. Commands hidden inside a script,
@@ -438,7 +440,7 @@ _GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--names
 
 #: Subcommands this CLI defines. Anything else run through autonomy.py is an
 #: attempt to reach a capability this file does not grant (AH5).
-AGENT_SUBCOMMANDS = ("items", "status", "check-commit")
+AGENT_SUBCOMMANDS = ("items", "status", "check-commit", "log", "verify-log")
 
 
 @dataclass(frozen=True)
@@ -1073,6 +1075,83 @@ def is_active(root: Path, today: date | None = None) -> bool:
     return status(root, today) != "inactive"
 
 
+# --------------------------------------------------------------------------- decision log
+
+#: The decision log (AM2-AC2): plain append-only JSONL, no hash chain
+#: (AM2-ADR-2). Tamper evidence is `verify-log --append-only` in CI.
+LOG_REL = "doc/decisions/decision-log.jsonl"
+LOG_FIELDS = ("id", "ts", "project", "kind", "class", "under", "artifact", "options", "choice", "why", "reverse")
+_FREE_TEXT = ("options", "choice", "why")
+_IDENTIFIER = re.compile(r"\d{13}")
+#: Kinds whose `reverse` must be one action (F-AC2).
+_DECIDING_KINDS = frozenset({"approval", "decision", "provisional", "merge"})
+_SHA = r"[0-9a-f]{7,40}"
+_ONE_ACTION = re.compile(
+    rf"revert {_SHA}|delete branch \S+|restore \S+ from {_SHA}|remove stamp \S+|none: [^\n]*\S[^\n]*"
+)
+_REVERSE_PROBLEM = "reverse: missing or not one action"
+
+
+def log_problems(entry: object) -> list[str]:
+    """Why `entry` may not go into the decision log, or `[]`."""
+    if not isinstance(entry, dict):
+        return ["an entry is one JSON object"]
+    if entry.get("kind") in _DECIDING_KINDS and not (
+        isinstance(entry.get("reverse"), str) and _ONE_ACTION.fullmatch(entry["reverse"])
+    ):
+        return [_REVERSE_PROBLEM]
+    problems = [f"missing field: {name}" for name in LOG_FIELDS if entry.get(name) is None]
+    for name in LOG_FIELDS:
+        value = entry.get(name)
+        if value is None:
+            continue
+        if name == "options":
+            if not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+                problems.append("options: a list of text")
+                continue
+        elif not isinstance(value, str):
+            problems.append(f"{name}: text")
+            continue
+        if name in _FREE_TEXT and any(_IDENTIFIER.search(v) for v in (value if name == "options" else [value])):
+            problems.append(f"{name}: looks like an identifier — describe the shape, not the value")
+    return problems
+
+
+def append_log(root: Path, entry: dict) -> None:
+    path = root / LOG_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def appended_only(old: str, new: str) -> int | None:
+    """`None` when `new` is `old` plus lines after its last line, else the
+    first line (1-based) of `old` that `new` no longer holds as it was."""
+    if new == old or (new.startswith(old) and (not old or old.endswith("\n"))):
+        return None
+    old_lines, new_lines = old.splitlines(keepends=True), new.splitlines(keepends=True)
+    for number, line in enumerate(old_lines, start=1):
+        if number > len(new_lines) or new_lines[number - 1] != line:
+            return number
+    return len(old_lines) or 1
+
+
+def verify_log(root: Path, base: str) -> tuple[int, str]:
+    """(exit code, message): 0 when HEAD's log only appends to `base`'s, 1
+    naming the first line removed or changed, 2 when `base` is not a commit."""
+    if _git_text(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}") is None:
+        return 2, f"verify-log: {base} is not a commit — cannot check the decision log against it"
+    old = _git_text(root, "show", f"{base}:{LOG_REL}") or ""
+    new = _git_text(root, "show", f"HEAD:{LOG_REL}") or ""
+    line = appended_only(old, new)
+    if line is None:
+        return 0, f"verify-log: {LOG_REL} only grows at the end since {base}"
+    return 1, (
+        f"verify-log: {LOG_REL} line {line} was removed or changed since {base} — "
+        "the decision log is append-only"
+    )
+
+
 # --------------------------------------------------------------------------- check-commit
 
 _TRAILER = re.compile(r"^Owner-Approved:\s*(\S+)\s*$", re.MULTILINE)
@@ -1120,6 +1199,12 @@ def check_commit(root: Path, message: str, extra_protected: tuple[str, ...] = ()
         check=True,
     ).stdout.splitlines()
     hits = [p for p in staged if is_protected(p, config, extra_protected)]
+    # AM2-AC3 (a): lines appended to the end of the decision log (a new file
+    # counts) need no trailer; the index is what git commits.
+    if LOG_REL in hits and _git_text(root, "cat-file", "-e", f":{LOG_REL}") is not None:
+        before = _git_text(root, "show", f"HEAD:{LOG_REL}") or ""
+        if appended_only(before, _git_text(root, "show", f":{LOG_REL}") or "") is None:
+            hits.remove(LOG_REL)
     if not hits:
         return []
     entries, _ = verify_approvals.load_registry(verify_approvals.registry_path())
@@ -1170,8 +1255,30 @@ def main(argv: list[str] | None = None) -> int:
     check = sub.add_parser("check-commit", help="commit-time protected-path check")
     check.add_argument("--message-file", required=True)
     check.add_argument("--protect", action="append", default=[], help="extra protected glob")
+    log = sub.add_parser("log", help=f"append one entry to {LOG_REL}")
+    log.add_argument("--entry", required=True, help="the entry, one JSON object")
+    verify = sub.add_parser("verify-log", help="the decision log only grows at the end since a base")
+    verify.add_argument("--append-only", required=True, metavar="BASE", help="the base commit to compare HEAD with")
     args = parser.parse_args(argv)
     root = project_root()
+
+    if args.command == "log":
+        try:
+            entry = json.loads(args.entry)
+        except json.JSONDecodeError as exc:
+            print(f"log: the entry is not JSON ({exc.msg})", file=sys.stderr)
+            return 2
+        problems = log_problems(entry)
+        for problem in problems:
+            print(f"log: {problem}", file=sys.stderr)
+        if problems:
+            return 2
+        append_log(root, entry)
+        return 0
+    if args.command == "verify-log":
+        code, message = verify_log(root, args.append_only)
+        print(message, file=sys.stderr if code else sys.stdout)
+        return code
 
     if args.command == "items":
         try:

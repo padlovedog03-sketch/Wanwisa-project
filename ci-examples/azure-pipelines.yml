@@ -119,3 +119,13 @@ steps:
       python3 scripts/check_fix_has_test.py --range "origin/${target}..HEAD"
     displayName: 'คอมมิต fix ต้องมีเทสต์'
     condition: eq(variables['Build.Reason'], 'PullRequest')
+
+  # ด่าน 6 — บันทึกการตัดสินใจ (doc/decisions/decision-log.jsonl) ต่อท้ายได้อย่างเดียว
+  # บรรทัดเก่าถูกแก้ ลบ สลับ หรือแทรกกลาง = แดง พร้อมบอกเลขบรรทัด
+  - script: |
+      set -euo pipefail
+      base="${GITHUB_BASE_REF:-${SYSTEM_PULLREQUEST_TARGETBRANCH:-main}}"
+      base="${base#refs/heads/}"
+      git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base"
+      python3 -I scripts/autonomy.py verify-log --append-only "$(git merge-base "origin/$base" HEAD)"
+    displayName: 'บันทึกการตัดสินใจต่อท้ายได้อย่างเดียว'

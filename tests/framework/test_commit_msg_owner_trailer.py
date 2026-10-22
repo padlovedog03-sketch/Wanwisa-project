@@ -220,3 +220,111 @@ def test_the_opt_in_does_not_clear_another_protected_path_it_adds(tmp_path: Path
     assert f"always-human item AH5: {extra} is protected" in result.stderr
     assert "scripts/autonomy.json is protected" not in result.stderr
     assert "MANDATE-proj-first.md is protected" not in result.stderr
+
+
+# --------------------------------------------------------------------------- AM2-AC3 (a)
+# SPEC-delegated-autonomy-am2-task-orders-scope AM2-AC3 (a): under autonomy,
+# lines appended to the end of doc/decisions/decision-log.jsonl (a new file
+# counts) are committable with no owner trailer. Every other change to the log,
+# and every other protected path, stays refused (AH5, naming the path). Run
+# under a live order (the spec's red-first probe) and under a mandate.
+
+_LOG = "doc/decisions/decision-log.jsonl"
+_ORDER_KEY = "order-proj-first-2026-10-22"
+_ORDER = _entry(_ORDER_KEY, "doc/orders/ORDER-proj-first.md", kind="order", expires="2099-12-31")
+
+
+@pytest.fixture(params=["order", "mandate"])
+def governed(request: pytest.FixtureRequest, tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    repo, env = _opted_in(tmp_path)
+    if request.param == "order":
+        Path(env["APPROVAL_LOG"]).write_text(json.dumps(_ORDER) + "\n", encoding="utf-8")
+    return repo, env
+
+
+def _stage_log(repo: Path, env: dict[str, str], lines: list[str]) -> None:
+    path = repo / _LOG
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+    _git(repo, "add", "-A", env=env)
+
+
+def _with_committed_log(repo: Path, env: dict[str, str]) -> None:
+    _stage_log(repo, env, ['{"id": "a"}', '{"id": "b"}', '{"id": "c"}'])
+    result = _git(repo, "commit", "-q", "-m", "chore: log", env=env)
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_new_decision_log_commits_with_no_trailer(governed: tuple[Path, dict[str, str]]) -> None:
+    repo, env = governed
+    _stage_log(repo, env, ['{"id": "a"}'])
+    result = _git(repo, "commit", "-q", "-m", "chore: first decision", env=env)
+    assert result.returncode == 0, result.stderr
+
+
+def test_lines_appended_to_the_log_commit_with_no_trailer(governed: tuple[Path, dict[str, str]]) -> None:
+    repo, env = governed
+    _with_committed_log(repo, env)
+    _stage_log(repo, env, ['{"id": "a"}', '{"id": "b"}', '{"id": "c"}', '{"id": "d"}', '{"id": "e"}'])
+    result = _git(repo, "commit", "-q", "-m", "chore: two decisions", env=env)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ['{"id": "a"}', '{"id": "B"}', '{"id": "c"}', '{"id": "d"}'],
+        ['{"id": "a"}', '{"id": "c"}'],
+        ['{"id": "b"}', '{"id": "a"}', '{"id": "c"}'],
+        ['{"id": "a"}', '{"id": "x"}', '{"id": "b"}', '{"id": "c"}'],
+    ],
+    ids=["changed", "removed", "swapped", "inserted-before-the-end"],
+)
+def test_any_other_change_to_the_log_is_refused(
+    governed: tuple[Path, dict[str, str]], lines: list[str]
+) -> None:
+    repo, env = governed
+    _with_committed_log(repo, env)
+    _stage_log(repo, env, lines)
+    result = _git(repo, "commit", "-q", "-m", "chore: tidy the log", env=env)
+    assert result.returncode != 0, "a non-append change to the decision log committed with no trailer"
+    assert f"always-human item AH5: {_LOG} is protected" in result.stderr
+
+
+def test_deleting_the_log_is_refused(governed: tuple[Path, dict[str, str]]) -> None:
+    repo, env = governed
+    _with_committed_log(repo, env)
+    _git(repo, "rm", "-q", _LOG, env=env)
+    result = _git(repo, "commit", "-q", "-m", "chore: drop the log", env=env)
+    assert result.returncode != 0
+    assert f"always-human item AH5: {_LOG} is protected" in result.stderr
+
+
+def test_the_index_not_the_worktree_is_judged(governed: tuple[Path, dict[str, str]]) -> None:
+    """The staged append is what git commits; an unstaged edit beside it is not."""
+    repo, env = governed
+    _with_committed_log(repo, env)
+    _stage_log(repo, env, ['{"id": "a"}', '{"id": "b"}', '{"id": "c"}', '{"id": "d"}'])
+    (repo / _LOG).write_text('{"id": "rewritten in the worktree only"}\n', encoding="utf-8")
+    result = _git(repo, "commit", "-q", "-m", "chore: one decision", env=env)
+    assert result.returncode == 0, result.stderr
+
+
+def test_another_file_under_doc_decisions_is_still_refused(governed: tuple[Path, dict[str, str]]) -> None:
+    repo, env = governed
+    other = repo / "doc" / "decisions" / "other.jsonl"
+    other.parent.mkdir(parents=True)
+    other.write_text('{"id": "a"}\n', encoding="utf-8")
+    _git(repo, "add", "-A", env=env)
+    result = _git(repo, "commit", "-q", "-m", "chore: side log", env=env)
+    assert result.returncode != 0
+    assert "always-human item AH5: doc/decisions/other.jsonl is protected" in result.stderr
+
+
+def test_an_append_does_not_carry_another_protected_path(governed: tuple[Path, dict[str, str]]) -> None:
+    repo, env = governed
+    _stage_log(repo, env, ['{"id": "a"}'])
+    result = _widen(repo, env, "chore: decision and widen")
+    assert result.returncode != 0, "an append to the log carried a change to scripts/autonomy.json"
+    assert "always-human item AH5: scripts/autonomy.json is protected" in result.stderr
+    assert f"{_LOG} is protected" not in result.stderr

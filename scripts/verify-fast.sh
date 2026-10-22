@@ -148,7 +148,8 @@ esac
 # their tests re-runs both suites that exercise it.
 case " $* " in
   *"scripts/autonomy"* | *"tests/framework/test_autonomy"* | *".githooks"* \
-  | *"tests/framework/test_pre_commit"*)
+  | *"tests/framework/test_pre_commit"* | *"tests/framework/test_decision_log"* \
+  | *"tests/framework/test_commit_msg_owner_trailer"*)
     echo "== always-human list tests"
     python3 -m pytest tests/framework/ tests/hooks/ -q
     ;;
