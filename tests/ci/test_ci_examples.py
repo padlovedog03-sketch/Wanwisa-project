@@ -407,6 +407,101 @@ def test_gate_3_is_green_after_bootstrap_runs(tmp_path: Path) -> None:
     assert "ไม่มีตัวยึดหลงเหลือ" in result.stdout
 
 
+def _bootstrapped_copy_with(tmp_path: Path, extra: dict[str, str]) -> Path:
+    """A bootstrapped scratch copy of this repo plus `extra` files
+    (relative path -> content), ready for Gate 3 to scan."""
+    repo_copy = tmp_path / "repo"
+    shutil.copytree(
+        _REPO_ROOT,
+        repo_copy,
+        ignore=shutil.ignore_patterns(
+            ".git", "__pycache__", ".pytest_cache", "*.pyc", "worktrees"
+        ),
+    )
+    bootstrap_result = subprocess.run(
+        ["bash", "scripts/bootstrap.sh"],
+        cwd=repo_copy,
+        input="Acme Portal\nacme\n/tmp/acme-backend\n/tmp/acme-frontend\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert bootstrap_result.returncode == 0, bootstrap_result.stdout + bootstrap_result.stderr
+    for rel, content in extra.items():
+        target = repo_copy / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return repo_copy
+
+
+def _run_gate_3(tmp_path: Path, repo: Path) -> subprocess.CompletedProcess[str]:
+    script = _extract_gate_3_script(tmp_path)
+    return subprocess.run(
+        ["bash", str(script)], cwd=repo, capture_output=True, text=True, timeout=30
+    )
+
+
+def test_gate_3_ignores_an_agent_worktree_under_dot_claude(tmp_path: Path) -> None:
+    """An isolated agent worktree lives at `.claude/worktrees/<name>/` — an
+    untracked copy of the repo that may hold test fixtures with upper-case
+    placeholders. It is not part of the project, so Gate 3 must not go red
+    on it (same skip as `_WORKTREES` in scripts/check_neutrality.py)."""
+    repo = _bootstrapped_copy_with(
+        tmp_path, {".claude/worktrees/agent-x/doc/f.md": "fixture <ABC_DEF>\n"}
+    )
+    result = _run_gate_3(tmp_path, repo)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ไม่มีตัวยึดหลงเหลือ" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ".claude/agents/x.md",
+        "doc/x.md",
+        "doc/worktrees-notes.md",
+        "doc/.claude/worktrees/x.md",
+        ".claude/worktreesX/x.md",
+        ".claude/worktrees.md",
+    ],
+)
+def test_gate_3_still_scans_real_paths_next_to_a_worktree(tmp_path: Path, rel: str) -> None:
+    """The worktree skip must not widen: a placeholder in a real path — even
+    one whose name merely contains `worktrees`, contains `.claude/worktrees/`
+    below the repo root, or starts with `.claude/worktrees` without the `/` —
+    is still red. Pins the `^` anchor and the trailing `/` of the filter."""
+    repo = _bootstrapped_copy_with(
+        tmp_path,
+        {
+            ".claude/worktrees/agent-x/doc/f.md": "fixture <ABC_DEF>\n",
+            rel: "leftover <ABC_DEF>\n",
+        },
+    )
+    result = _run_gate_3(tmp_path, repo)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f"{rel}:1:leftover <ABC_DEF>" in result.stderr
+    assert "agent-x" not in result.stderr
+
+
+def test_gate_3_still_reports_a_real_file_whose_content_mentions_a_worktree(
+    tmp_path: Path,
+) -> None:
+    """The filter matches the path at the start of grep's output line, not the
+    content after it: a real file whose placeholder line also mentions
+    `.claude/worktrees/` must still be reported. Pins the `^` anchor."""
+    repo = _bootstrapped_copy_with(
+        tmp_path,
+        {
+            ".claude/worktrees/agent-x/doc/f.md": "fixture <ABC_DEF>\n",
+            "doc/x.md": "leftover <ABC_DEF> see .claude/worktrees/\n",
+        },
+    )
+    result = _run_gate_3(tmp_path, repo)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "doc/x.md:1:leftover <ABC_DEF> see .claude/worktrees/" in result.stderr
+    assert "agent-x" not in result.stderr
+
+
 # ---------------------------------------------------------------------------
 # Gate 2 — the exit gate. The CI files run `./scripts/verify-full.sh` verbatim;
 # proven here with the same stub-copy technique `tests/hooks/
