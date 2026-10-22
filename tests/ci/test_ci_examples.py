@@ -347,6 +347,59 @@ def test_gate_3_scripts_are_byte_identical_between_the_two_files() -> None:
     assert gh_run.strip() == ado_script.strip()
 
 
+_BOOTSTRAP_INPUT = "Acme Portal\nacme\n/tmp/acme-backend\n/tmp/acme-frontend\n"
+
+
+def _run_bootstrap(repo: Path, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    """Run `scripts/bootstrap.sh` in `repo` with HOME pointed at a scratch dir.
+
+    Bootstrap ends with `mkdir -p ~/.jarvis/approvals && touch .../registry.jsonl`;
+    run with the real HOME, every test here moved the owner's real approval
+    registry's mtime without writing an approval (D8). Every bootstrap run in
+    this module goes through here — `test_bootstrap_runs_only_through_the_isolating_helper`
+    pins that."""
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    return subprocess.run(
+        ["bash", "scripts/bootstrap.sh"],
+        cwd=repo,
+        input=_BOOTSTRAP_INPUT,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HOME": str(home)},
+        timeout=30,
+    )
+
+
+def test_bootstrap_in_these_tests_never_touches_the_real_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D8: stand a sentinel in for the owner's HOME, run bootstrap the way
+    these tests do, and require the sentinel untouched — while the registry
+    still lands in the helper's scratch HOME, so bootstrap really reached
+    the line that writes it."""
+    sentinel_home = tmp_path / "sentinel-home"
+    sentinel_home.mkdir()
+    monkeypatch.setenv("HOME", str(sentinel_home))
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    shutil.copy2(_BOOTSTRAP, repo / "scripts" / "bootstrap.sh")
+    (repo / "AGENTS.md").write_text("name <PROJECT>\n", encoding="utf-8")
+
+    result = _run_bootstrap(repo, tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert list(sentinel_home.iterdir()) == [], "bootstrap wrote under the real HOME"
+    assert (tmp_path / "home" / ".jarvis" / "approvals" / "registry.jsonl").is_file()
+
+
+def test_bootstrap_runs_only_through_the_isolating_helper() -> None:
+    """A future test that calls bootstrap directly would reopen D8 silently,
+    so the module may spell the bootstrap command exactly once: in the helper."""
+    needle = '["bash", ' + '"scripts/bootstrap.sh"]'  # split so this line is not a match
+    assert Path(__file__).read_text(encoding="utf-8").count(needle) == 1
+
+
 #: Every path Gate 3 skips, in the exact `grep -v` form both CI files and
 #: `scripts/bootstrap.sh` must spell it.
 _GATE_3_EXCLUSIONS = (
@@ -396,14 +449,7 @@ def test_gate_3_exclusions_match_bootstraps_own_leftover_check(tmp_path: Path) -
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    result = subprocess.run(
-        ["bash", "scripts/bootstrap.sh"],
-        cwd=repo,
-        input="Acme Portal\nacme\n/tmp/acme-backend\n/tmp/acme-frontend\n",
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    result = _run_bootstrap(repo, tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
     assert not re.search(r"^\s*\.claude/worktrees/", result.stdout, re.MULTILINE), result.stdout
     assert worktree_md.read_text(encoding="utf-8") == "name <PROJECT>\n"
@@ -438,15 +484,7 @@ def test_gate_3_is_green_after_bootstrap_runs(tmp_path: Path) -> None:
         ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "*.pyc"),
     )
 
-    bootstrap_input = "Acme Portal\nacme\n/tmp/acme-backend\n/tmp/acme-frontend\n"
-    bootstrap_result = subprocess.run(
-        ["bash", "scripts/bootstrap.sh"],
-        cwd=repo_copy,
-        input=bootstrap_input,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    bootstrap_result = _run_bootstrap(repo_copy, tmp_path)
     assert bootstrap_result.returncode == 0, bootstrap_result.stdout + bootstrap_result.stderr
 
     script = _extract_gate_3_script(tmp_path)
@@ -470,14 +508,7 @@ def _bootstrapped_copy_with(tmp_path: Path, extra: dict[str, str]) -> Path:
             ".git", "__pycache__", ".pytest_cache", "*.pyc", "worktrees"
         ),
     )
-    bootstrap_result = subprocess.run(
-        ["bash", "scripts/bootstrap.sh"],
-        cwd=repo_copy,
-        input="Acme Portal\nacme\n/tmp/acme-backend\n/tmp/acme-frontend\n",
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    bootstrap_result = _run_bootstrap(repo_copy, tmp_path)
     assert bootstrap_result.returncode == 0, bootstrap_result.stdout + bootstrap_result.stderr
     for rel, content in extra.items():
         target = repo_copy / rel
