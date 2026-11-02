@@ -12,6 +12,8 @@ dist/
 build/
 *firebase-adminsdk*.json
 firebase-firestore-dump.json
+canva-original-firebase-data.json
+canva-rtdb-found.json
 scripts/neutrality-denylist.local.txt
 .claude/worktrees/
 .verify/
