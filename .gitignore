@@ -10,6 +10,8 @@ __pycache__/
 .next/
 dist/
 build/
+*firebase-adminsdk*.json
+firebase-firestore-dump.json
 scripts/neutrality-denylist.local.txt
 .claude/worktrees/
 .verify/
