@@ -8,7 +8,6 @@ export default {
     extend: {
       colors: {
         navy: '#0c3574',
-        blue: '#1267d6',
         sky: '#edf5ff',
         ink: '#18324f',
         muted: '#587895',
@@ -18,4 +17,5 @@ export default {
   },
   plugins: [],
 }
+
 

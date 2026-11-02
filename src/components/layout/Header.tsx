@@ -40,14 +40,14 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 shadow-lg no-print bg-[#0c3574]">
+    <header className="sticky top-0 z-40 shadow-lg no-print bg-[#0c3574] text-white">
       <div className="w-full max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 shrink-0 grid place-items-center rounded-xl bg-[#1b75df] text-white">
-            <GraduationCap className="w-5 h-5" />
+            <GraduationCap className="w-5 h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <p className="text-blue-200 text-xs font-semibold">แฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครู</p>
+            <p className="text-[#dbeafe] text-xs font-semibold">แฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครู</p>
             <h1 className="text-white font-bold text-lg md:text-xl truncate leading-tight">{siteName}</h1>
           </div>
         </div>
@@ -58,7 +58,7 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
           onClick={() => setMobileMenuOpen((prev) => !prev)}
           aria-label="เปิดหรือปิดเมนู"
         >
-          <Menu className="w-6 h-6" />
+          <Menu className="w-6 h-6 text-white" />
         </button>
 
         <nav className="hidden md:flex gap-1 items-center overflow-x-auto" aria-label="เมนูหลัก">
@@ -71,11 +71,13 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
                 type="button"
                 onClick={() => onSelectSection(item.key)}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
-                  isActive ? 'bg-white/20 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                  isActive
+                    ? 'bg-white/20 text-white shadow-sm'
+                    : 'text-white/90 hover:bg-white/15 hover:text-white'
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
+                <Icon className="w-4 h-4 text-white shrink-0" />
+                <span className="text-white">{item.label}</span>
               </button>
             );
           })}
@@ -96,11 +98,13 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
                   setMobileMenuOpen(false);
                 }}
                 className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
-                  isActive ? 'bg-white/20 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                  isActive
+                    ? 'bg-white/20 text-white shadow-sm'
+                    : 'text-white/90 hover:bg-white/15 hover:text-white'
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
+                <Icon className="w-4 h-4 text-white shrink-0" />
+                <span className="text-white">{item.label}</span>
               </button>
             );
           })}

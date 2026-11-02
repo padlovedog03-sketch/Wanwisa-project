@@ -54,3 +54,4 @@ npm run test
 ## Approval history
 
 - **2026-11-02 — drafted.** Drafted by Karen (QA role) based on test execution against commit dff341c.
+
