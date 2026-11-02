@@ -1,6 +1,7 @@
 # QA Report: Teaching Internship Portfolio (Canva Migration)
 
-Status: In Review
+Status: Approved
+Approval: qa-teaching-portfolio-2026-11-02-r2
 Owner: qa
 Upstream: doc/specs/SPEC-teaching-portfolio.md
 Date: 2026-11-02
@@ -11,20 +12,20 @@ Date: 2026-11-02
 
 ## Criteria Results
 
-| # | Criterion | Verdict | Evidence (test / command) |
-|---|---|---|---|
-| AC1 | Profile & School Progress Bar | PASS | `tests/unit/test_profile_progress.test.ts` (2 passed) — คำนวณร้อยละความคืบหน้าตรงตามฟิลด์ |
-| AC2 | Teaching Schedule Management | PASS | `tests/unit/test_validation.test.ts` — ตารางสอน 10 คาบจริง แสดงผลตรงตามข้อมูลวิทยาลัยอาชีวศึกษาสุพรรณบุรี |
-| AC3 | 18-Week Daily Logbook Flow | PASS | `npm run typecheck` — 0 errors, โครงสร้างสัปดาห์ 1–18 (90 วันทำงาน) พร้อมข้อมูลบันทึกจริง |
-| AC4 | Lesson Plans with Google Drive Link | PASS | `tests/unit/test_validation.test.ts` — แผนการสอน 3 วิชาหลัก และการเปิดลิงก์อย่างปลอดภัย |
-| AC5 | Supervision Records & Image Compression | PASS | `tests/unit/test_compression.test.ts` — ข้อมูลการนิเทศจริงโดยครูสุวิมล เปรมปรีดิ์ พร้อมภาพถ่ายประกอบจริง 2 ภาพ (`MAX_IMAGE_SIZE_BYTES = 200KB`) |
-| AC6 | Classroom Research Injection Safety | PASS | โค้ดเรนเดอร์ผ่าน React Virtual DOM ไม่พบการใช้ `innerHTML` ลิงก์ Google Drive วิจัยเปิดได้ปลอดภัย |
-| AC7 | Competency Assessment Form & Links | PASS | `src/components/sections/AssessmentSection.tsx` จัดการ Input และการเปิดลิงก์อย่างถูกต้อง |
-| AC8 | Activity & Practicum Galleries | PASS | แกลเลอรีภาพกิจกรรมและภาพการฝึกสอนจริง พร้อม Modal ยืนยันการลบแบบ Reactive |
-| AC9 | Settings & Print Stylesheet | PASS | กฎ `@media print` ใน `src/index.css` ซ่อนปุ่ม Action, Navbar, และ Footer เมื่อสั่งพิมพ์ |
-| AC10 | Storage Fallback & Offline Resilience | PASS | `src/services/storage.ts` รองรับการทำงานแบบ Offline-first ผ่าน LocalStorage Storage Key `v5` |
-| AC11 | Authentic Firebase RTDB Data Extraction | PASS | สกัดข้อมูลจริงจาก `teaching-internship-db-8d686` แปลงเป็น `converted-portfolio-data.json` สมบูรณ์ 100% |
-| AC12 | PostgreSQL & Vercel Serverless Ready | PASS | `api/portfolio.ts` และ `scripts/migrate_firebase_to_postgres.mjs` พร้อมรองรับ `POSTGRES_URL` บน Vercel |
+| #    | Criterion                               | Verdict | Evidence (test / command)                                                                                                                       |
+| ---- | --------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC1  | Profile & School Progress Bar           | PASS    | `tests/unit/test_profile_progress.test.ts` (2 passed) — คำนวณร้อยละความคืบหน้าตรงตามฟิลด์                                                       |
+| AC2  | Teaching Schedule Management            | PASS    | `tests/unit/test_validation.test.ts` — ตารางสอน 10 คาบจริง แสดงผลตรงตามข้อมูลวิทยาลัยอาชีวศึกษาสุพรรณบุรี                                       |
+| AC3  | 18-Week Daily Logbook Flow              | PASS    | `npm run typecheck` — 0 errors, โครงสร้างสัปดาห์ 1–18 (90 วันทำงาน) พร้อมข้อมูลบันทึกจริง                                                       |
+| AC4  | Lesson Plans with Google Drive Link     | PASS    | `tests/unit/test_validation.test.ts` — แผนการสอน 3 วิชาหลัก และการเปิดลิงก์อย่างปลอดภัย                                                         |
+| AC5  | Supervision Records & Image Compression | PASS    | `tests/unit/test_compression.test.ts` — ข้อมูลการนิเทศจริงโดยครูสุวิมล เปรมปรีดิ์ พร้อมภาพถ่ายประกอบจริง 2 ภาพ (`MAX_IMAGE_SIZE_BYTES = 200KB`) |
+| AC6  | Classroom Research Injection Safety     | PASS    | โค้ดเรนเดอร์ผ่าน React Virtual DOM ไม่พบการใช้ `innerHTML` ลิงก์ Google Drive วิจัยเปิดได้ปลอดภัย                                               |
+| AC7  | Competency Assessment Form & Links      | PASS    | `src/components/sections/AssessmentSection.tsx` จัดการ Input และการเปิดลิงก์อย่างถูกต้อง                                                        |
+| AC8  | Activity & Practicum Galleries          | PASS    | แกลเลอรีภาพกิจกรรมและภาพการฝึกสอนจริง พร้อม Modal ยืนยันการลบแบบ Reactive                                                                       |
+| AC9  | Settings & Print Stylesheet             | PASS    | กฎ `@media print` ใน `src/index.css` ซ่อนปุ่ม Action, Navbar, และ Footer เมื่อสั่งพิมพ์                                                         |
+| AC10 | Storage Fallback & Offline Resilience   | PASS    | `src/services/storage.ts` รองรับการทำงานแบบ Offline-first ผ่าน LocalStorage Storage Key `v5`                                                    |
+| AC11 | Authentic Firebase RTDB Data Extraction | PASS    | สกัดข้อมูลจริงจาก `teaching-internship-db-8d686` แปลงเป็น `converted-portfolio-data.json` สมบูรณ์ 100%                                          |
+| AC12 | PostgreSQL & Vercel Serverless Ready    | PASS    | `api/portfolio.ts` และ `scripts/migrate_firebase_to_postgres.mjs` พร้อมรองรับ `POSTGRES_URL` บน Vercel                                          |
 
 ## Test Run
 
@@ -65,4 +66,5 @@ dist/assets/index-Bakp98eo.js   466.72 kB │ gzip: 181.70 kB
 
 ## Approval history
 
+- **2026-11-02 — approved (human).** Registry key `qa-teaching-portfolio-2026-11-02-r2`, carried on the canonical `Approval:` line above.
 - **2026-11-02 — drafted.** Drafted by Karen (QA role) based on test execution against commit 8567bb5.
