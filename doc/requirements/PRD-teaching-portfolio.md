@@ -1,6 +1,7 @@
 # PRD: Teaching Internship Portfolio (Canva Migration)
 
-Status: In Review
+Status: Approved
+Approval: prd-teaching-portfolio-2026-11-02
 Owner: pm
 Upstream: User Request — Canva Export Source Code Migration
 Date: 2026-11-02
@@ -52,4 +53,6 @@ Date: 2026-11-02
 
 ## Approval history
 
+- **2026-11-02 — approved (human).** Registry key `prd-teaching-portfolio-2026-11-02`, carried on the canonical `Approval:` line above.
 - **2026-11-02 — drafted.** Drafted by Karen (PM role) based on user's Canva legacy codebase.
+
