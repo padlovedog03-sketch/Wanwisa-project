@@ -69,10 +69,10 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Hero Banner with Right-side Cover Image Slot */}
-      <div className="border border-[#d7e5f5] rounded-3xl overflow-hidden bg-gradient-to-br from-white to-[#e8f3ff] shadow-sm p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="flex-1">
-          <span className="inline-block rounded-full bg-blue-100 text-[#1053ad] text-xs font-bold px-3 py-1 mb-3">
+      {/* Hero Banner with Right-side Cover Image Slot (Full Bleed to edges) */}
+      <div className="border border-[#d7e5f5] rounded-2xl md:rounded-3xl overflow-hidden bg-gradient-to-br from-white to-[#e8f3ff] shadow-sm flex flex-col md:flex-row items-stretch justify-between">
+        <div className="flex-1 p-6 md:p-8 flex flex-col justify-center">
+          <span className="inline-block rounded-full bg-blue-100 text-[#1053ad] text-xs font-bold px-3 py-1 mb-3 self-start">
             ข้อมูลตัวอย่าง • แก้ไขแทนที่ได้ทันที
           </span>
           <h2 className="text-2xl md:text-3xl font-extrabold text-[#0c3574]">
@@ -83,12 +83,12 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
           </p>
         </div>
 
-        {/* Cover Photo Slot */}
-        <div className="w-full md:w-80 lg:w-96 h-48 md:h-44 rounded-2xl overflow-hidden border border-slate-200/80 shadow-sm relative group shrink-0 bg-slate-100">
+        {/* Cover Photo Slot (Full Bleed) */}
+        <div className="w-full md:w-[36%] lg:w-[34%] min-h-[220px] md:min-h-full relative group shrink-0 bg-slate-100 self-stretch">
           <img
             src={profile.coverImageUrl || '/images/cover_internship.jpg'}
             alt="ภาพหน้าปกรายงาน"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover block"
           />
           <button
             type="button"
