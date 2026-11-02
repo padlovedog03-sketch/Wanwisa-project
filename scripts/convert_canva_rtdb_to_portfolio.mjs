@@ -208,7 +208,7 @@ const practicum = (rep.practicum || []).map((p, idx) => ({
 
 // 10. Settings
 const settings = {
-  siteName: `รายงานการฝึกสอน - ${profile.studentName}`,
+  siteName: "รายงานการฝึกสอน",
   authorName: profile.studentName,
   primaryTheme: "official",
   showSample: false,

@@ -39,16 +39,21 @@ const NAV_ITEMS: Array<{ key: SectionKey; label: string; icon: React.ElementType
 export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, siteName }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Leave only 'รายงานการฝึกสอน' without trailing author name
+  const displayTitle = siteName && siteName.trim()
+    ? siteName.split(' - ')[0].trim()
+    : 'รายงานการฝึกสอน';
+
   return (
     <header className="sticky top-0 z-40 shadow-lg no-print bg-[#0c3574] text-white">
-      <div className="w-full max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 shrink-0 grid place-items-center rounded-xl bg-[#1b75df] text-white">
+      <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className="w-9 h-9 shrink-0 grid place-items-center rounded-xl bg-[#1b75df] text-white shadow-sm">
             <GraduationCap className="w-5 h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <p className="text-[#dbeafe] text-xs font-semibold">แฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครู</p>
-            <h1 className="text-white font-bold text-lg md:text-xl truncate leading-tight">{siteName}</h1>
+            <p className="text-[#bfdbfe] text-[11px] font-medium leading-none mb-1">แฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครู</p>
+            <h1 className="text-white font-bold text-base sm:text-lg leading-tight tracking-wide">{displayTitle}</h1>
           </div>
         </div>
 
@@ -61,7 +66,10 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
           <Menu className="w-6 h-6 text-white" />
         </button>
 
-        <nav className="hidden md:flex gap-1 items-center overflow-x-auto" aria-label="เมนูหลัก">
+        <nav
+          className="hidden md:flex items-center gap-0.5 lg:gap-1 xl:gap-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-1"
+          aria-label="เมนูหลัก"
+        >
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeSection === item.key;
@@ -70,13 +78,13 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
                 key={item.key}
                 type="button"
                 onClick={() => onSelectSection(item.key)}
-                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
+                className={`shrink-0 flex items-center gap-1 lg:gap-1.5 rounded-lg px-2 lg:px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
                   isActive
-                    ? 'bg-white/20 text-white shadow-sm'
+                    ? 'bg-white/20 text-white shadow-sm ring-1 ring-white/30'
                     : 'text-white/90 hover:bg-white/15 hover:text-white'
                 }`}
               >
-                <Icon className="w-4 h-4 text-white shrink-0" />
+                <Icon className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-white shrink-0" />
                 <span className="text-white">{item.label}</span>
               </button>
             );
