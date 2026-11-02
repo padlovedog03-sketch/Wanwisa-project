@@ -8,6 +8,8 @@ export interface TeacherProfile {
   semester: string;
   practicumPeriod: string;
   teachingHours: number;
+  avatarUrl?: string;
+  coverImageUrl?: string;
 }
 
 export interface SchoolInfo {

@@ -8,7 +8,9 @@
     "schoolName": "วิทยาลัยอาชีวศึกษาสุพรรณบุรี",
     "semester": "ภาคเรียนที่ 1 / ปีการศึกษา 2569",
     "practicumPeriod": "5 พฤษภาคม – 31 มีนาคม 2569",
-    "teachingHours": 12
+    "teachingHours": 12,
+    "avatarUrl": "/images/avatar_wanwisa.png",
+    "coverImageUrl": "/images/cover_internship.jpg"
   },
   "school": {
     "schoolFullName": "วิทยาลัยอาชีวศึกษาสุพรรณบุรี",
