@@ -70,6 +70,20 @@ export function App() {
     }
   };
 
+  const handleSaveAssessment = async (updatedList?: any) => {
+    if (updatedList) {
+      const newState = { ...state, assessment: updatedList };
+      const success = await saveAll(newState);
+      if (success) {
+        showToast('บันทึกข้อมูลสำเร็จเรียบร้อย');
+      } else {
+        showToast('บันทึกข้อมูลไม่สำเร็จ', 'error');
+      }
+      return;
+    }
+    handleSave();
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -193,7 +207,7 @@ export function App() {
             <AssessmentSection
               assessment={state.assessment}
               onChange={(updated) => updateState('assessment', updated)}
-              onSave={handleSave}
+              onSave={handleSaveAssessment}
               onConfirmDelete={(task) =>
                 openConfirm('ยืนยันการลบรายการ', 'ต้องการลบรายการแบบประเมินนี้ใช่หรือไม่?', task)
               }

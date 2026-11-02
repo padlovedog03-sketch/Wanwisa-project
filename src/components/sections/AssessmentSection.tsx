@@ -6,7 +6,7 @@ import { isValidHttpUrl } from '../../utils/validation';
 interface AssessmentSectionProps {
   assessment: AssessmentItem[];
   onChange: (updated: AssessmentItem[]) => void;
-  onSave: () => void;
+  onSave: (updated?: AssessmentItem[]) => void;
   onConfirmDelete: (task: () => void) => void;
   onShowToast: (msg: string, type?: 'success' | 'error') => void;
 }
@@ -39,6 +39,31 @@ export const AssessmentSection: React.FC<AssessmentSectionProps> = ({
     onShowToast('เพิ่มรายการแบบประเมินแล้ว');
   };
 
+  const handleSaveClick = () => {
+    if (title.trim() || url.trim()) {
+      const newItem: AssessmentItem = {
+        id: crypto.randomUUID(),
+        title: title.trim() || 'แบบประเมินสมรรถนะ',
+        url: url.trim(),
+      };
+      const updated = [...assessment, newItem];
+      onChange(updated);
+      setTitle('');
+      setUrl('');
+      onShowToast('เพิ่มรายการและบันทึกข้อมูลเรียบร้อย');
+      onSave(updated);
+      return;
+    }
+    onSave();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAdd();
+    }
+  };
+
   const handleDelete = (id: string) => {
     onConfirmDelete(() => {
       onChange(assessment.filter((item) => item.id !== id));
@@ -54,7 +79,7 @@ export const AssessmentSection: React.FC<AssessmentSectionProps> = ({
         </div>
         <button
           type="button"
-          onClick={onSave}
+          onClick={handleSaveClick}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#1267d6] text-white hover:bg-[#0b55b5] transition-colors"
         >
           <Save className="w-3.5 h-3.5" />
@@ -71,6 +96,7 @@ export const AssessmentSection: React.FC<AssessmentSectionProps> = ({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="เช่น แบบประเมินสมรรถนะภาคเรียนที่ 1"
               className="w-full border border-[#cbdcf2] rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#1267d6]"
             />
@@ -81,6 +107,7 @@ export const AssessmentSection: React.FC<AssessmentSectionProps> = ({
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="https://example.com"
               className="w-full border border-[#cbdcf2] rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#1267d6]"
             />

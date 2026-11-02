@@ -42,13 +42,17 @@ export function usePortfolioState() {
     setIsDirty(true);
   }, []);
 
-  const saveAll = useCallback(async () => {
-    const localOk = saveLocalPortfolio(state);
+  const saveAll = useCallback(async (overrideState?: PortfolioState) => {
+    const dataToSave = overrideState || state;
+    const localOk = saveLocalPortfolio(dataToSave);
     if (localOk) {
+      if (overrideState) {
+        setState(overrideState);
+      }
       setIsDirty(false);
       setLastSaved(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
       // Asynchronously sync with PostgreSQL
-      syncWithPostgres(state);
+      syncWithPostgres(dataToSave);
       return true;
     }
     return false;
