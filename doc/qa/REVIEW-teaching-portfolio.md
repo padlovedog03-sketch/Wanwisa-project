@@ -1,6 +1,7 @@
 # Review: Teaching Internship Portfolio (Canva Migration)
 
-Status: In Review
+Status: Approved
+Approval: review-teaching-portfolio-2026-11-02
 Owner: reviewer
 Upstream: doc/specs/SPEC-teaching-portfolio.md
 Author-run: author-1510b1e
@@ -40,4 +41,6 @@ Date: 2026-11-02
 
 ## Approval history
 
+- **2026-11-02 — approved (human).** Registry key `review-teaching-portfolio-2026-11-02`, carried on the canonical `Approval:` line above.
 - **2026-11-02 — drafted.** Drafted by Karen (Reviewer role) after independent verification of commit 1510b1e.
+
