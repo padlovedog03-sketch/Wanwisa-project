@@ -1,6 +1,7 @@
 # SPEC: Teaching Internship Portfolio (Canva Migration)
 
-Status: In Review
+Status: Approved
+Approval: spec-teaching-portfolio-2026-11-02
 Owner: ba-sa
 Upstream: doc/requirements/PRD-teaching-portfolio.md
 Date: 2026-11-02
@@ -226,4 +227,6 @@ How this list was built: วิเคราะห์จากความต้�
 
 ## Approval history
 
+- **2026-11-02 — approved (human).** Registry key `spec-teaching-portfolio-2026-11-02`, carried on the canonical `Approval:` line above.
 - **2026-11-02 — drafted.** Drafted by Karen (BA/SA role) from approved `PRD-teaching-portfolio.md`.
+
