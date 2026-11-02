@@ -21,6 +21,7 @@ export interface SchoolInfo {
   mentor: string;
   vision: string;
   mission: string;
+  logoUrl?: string;
 }
 
 export interface ScheduleItem {

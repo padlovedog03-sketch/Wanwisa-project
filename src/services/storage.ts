@@ -3,7 +3,7 @@ import { INITIAL_PORTFOLIO_STATE } from './initialData';
 
 export { INITIAL_PORTFOLIO_STATE };
 
-const LOCAL_STORAGE_KEY = "teaching-practice-report-data-v6";
+const LOCAL_STORAGE_KEY = "teaching-practice-report-data-v7";
 
 export function loadLocalPortfolio(): PortfolioState {
   try {
