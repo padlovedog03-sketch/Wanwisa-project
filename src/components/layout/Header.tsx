@@ -48,12 +48,12 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
     <header className="sticky top-0 z-40 shadow-lg no-print bg-[#0c3574] text-white">
       <div className="w-full max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 shrink-0">
-          <div className="w-9 h-9 shrink-0 grid place-items-center rounded-xl bg-[#1b75df] text-white shadow-sm">
-            <GraduationCap className="w-5 h-5 text-white" />
+          <div className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 grid place-items-center rounded-xl bg-[#1b75df] text-white shadow-sm">
+            <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <p className="text-[#bfdbfe] text-[11px] font-medium leading-none mb-1">แฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครู</p>
-            <h1 className="text-white font-bold text-base sm:text-lg leading-tight tracking-wide">{displayTitle}</h1>
+            <h1 className="text-white font-bold text-sm sm:text-[15px] leading-tight tracking-wide">{displayTitle}</h1>
+            <p className="text-[#bfdbfe] text-[10px] sm:text-[11px] font-medium leading-tight mt-0.5">แฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครู</p>
           </div>
         </div>
 
