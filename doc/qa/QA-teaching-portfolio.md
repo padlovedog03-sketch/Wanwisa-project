@@ -8,7 +8,7 @@ Date: 2026-11-02
 
 ## Verdict: PASS
 
-ระบบแฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครูผ่านการทดสอบระดับ QA ครบถ้วนทุก Acceptance Criteria (AC1–AC12) ยืนยันการทำงานของระบบ React 19 + TypeScript, การกู้คืนและบูรณาการข้อมูลจริงของ นางสาววรรวิษา พันธุ์สาย (วิทยาลัยอาชีวศึกษาสุพรรณบุรี) จาก Firebase Realtime Database ต้นฉบับ, การป้องกันช่องโหว่ OWASP XSS, ระบบบีบอัดภาพถ่าย, และการเตรียมความพร้อมสำหรับการ Deploy บน Vercel พร้อมเชื่อมต่อ PostgreSQL Serverless
+ระบบแฟ้มสะสมผลงานการฝึกประสบการณ์วิชาชีพครูผ่านการทดสอบระดับ QA ครบถ้วนทุก Acceptance Criteria (AC1–AC12) ยืนยันการทำงานของระบบ React 19 + TypeScript, การกู้คืนและบูรณาการข้อมูลจาก Firebase Realtime Database ต้นฉบับ, การป้องกันช่องโหว่ OWASP XSS, ระบบบีบอัดภาพถ่าย, และการเตรียมความพร้อมสำหรับการ Deploy บน Vercel พร้อมเชื่อมต่อ PostgreSQL Serverless
 
 ## Criteria Results
 
@@ -62,7 +62,7 @@ dist/assets/index-Bakp98eo.js   466.72 kB │ gzip: 181.70 kB
 - **Data URI Script Execution**: ทดสอบใส่ `data:text/html,<script>alert(1)</script>` → ปฏิเสธเป็น `false`
 - **Partial Form Inputs**: ป้อนข้อมูล Profile เพียงบางส่วน → Progress Bar คำนวณร้อยละได้อย่างถูกต้องโดยไม่เกิด NaN หรือ Crash
 - **Image Size Limit**: ทดสอบอัปโหลดรูปภาพที่บีบอัดแล้วเกิน 200KB → ระบบปฏิเสธพร้อมส่งแจ้งเตือน Error Dialog แก่ผู้ใช้
-- **Cache Busting**: ปรับ Storage Key เป็น `v5` ทำให้ Client ทุกเครื่องโหลดข้อมูลจริงของ นางสาววรรวิษา ทันทีโดยไม่ต้องเคลียร์แคชด้วยตนเอง
+- **Cache Busting**: ปรับ Storage Key เป็น `v9` ทำให้ Client ทุกเครื่องโหลดข้อมูลล่าสุดทันทีโดยไม่ต้องเคลียร์แคชด้วยตนเอง
 
 ## Approval history
 

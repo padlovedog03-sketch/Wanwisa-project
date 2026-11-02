@@ -16,8 +16,8 @@ console.log("Converting Canva Realtime Database to PortfolioState...");
 // 1. Profile
 const profile = {
   reportTitle: rep.profile?.report_title || "รายงานการฝึกสอนประสบการณ์วิชาชีพครู",
-  studentName: rep.profile?.student_name || "นางสาววรรวิษา พันธุ์สาย",
-  studentId: rep.profile?.student_id || "6702041510156",
+  studentName: rep.profile?.student_name || "นักศึกษาฝึกสอน",
+  studentId: rep.profile?.student_id || "670XXXXXXXXX",
   major: rep.profile?.major || "สาขาเทคโนโลยีธุรกิจดิจิทัล",
   institution: rep.profile?.institution || "มหาวิทยาลัยเทคโนโลยีพระจอมเกล้าพระนครเหนือ",
   schoolName: rep.profile?.school_name || "วิทยาลัยอาชีวศึกษาสุพรรณบุรี",
@@ -31,7 +31,7 @@ const school = {
   schoolFullName: rep.school?.school_full_name || "วิทยาลัยอาชีวศึกษาสุพรรณบุรี",
   address: rep.school?.address || "854 ถนน พระพันวษา ตำบลท่าพี่เลี้ยง อำเภอเมืองสุพรรณบุรี สุพรรณบุรี 72000",
   levels: rep.school?.levels || "ปวช. - ปวส.",
-  contact: rep.school?.contact ? rep.school.contact.trim() : "035-511-355",
+  contact: rep.school?.contact ? rep.school.contact.trim() : "0XX-XXX-XXXX",
   principal: rep.school?.principal || "ดร.ทรงวุฒิ เรือนไทย",
   mentor: rep.school?.mentor || "นางสาวสุวิมล เปรมปรีดิ์",
   vision: rep.school?.vision || "วิทยาลัยวิชาชีพชั้นนำ ดำรงคุณธรรม ก้าวทันเทคโนโลยี",

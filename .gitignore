@@ -15,6 +15,7 @@ build/
 firebase-firestore-dump.json
 canva-original-firebase-data.json
 canva-rtdb-found.json
+converted-portfolio-data.json
 *.pem
 *.key
 credentials.json

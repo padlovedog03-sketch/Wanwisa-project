@@ -1,5 +1,6 @@
 import { PortfolioState } from '../types/portfolio';
-import convertedData from '../../converted-portfolio-data.json';
+import { TEMPLATE_PORTFOLIO_STATE } from '../data/templateData';
 
-export const INITIAL_PORTFOLIO_STATE: PortfolioState = convertedData as unknown as PortfolioState;
+export const INITIAL_PORTFOLIO_STATE: PortfolioState = TEMPLATE_PORTFOLIO_STATE;
+
 

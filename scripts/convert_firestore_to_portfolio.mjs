@@ -8,7 +8,7 @@ if (!fs.existsSync(dumpPath)) {
 }
 
 const rawDump = JSON.parse(fs.readFileSync(dumpPath, 'utf-8'));
-// Default to main_intern (นางสาววรรวิษา พันธุ์สาย)
+// Default to main_intern
 const targetUserId = process.argv[2] || 'main_intern';
 const userData = rawDump.users?.[targetUserId];
 
@@ -189,8 +189,8 @@ if (academicItems['ac-2']) {
 const portfolioState = {
   profile: {
     reportTitle: "รายงานการฝึกสอนประสบการณ์วิชาชีพครู",
-    studentName: userData.name || "นางสาววรรวิษา พันธุ์สาย",
-    studentId: userData.studentId || "6702041510156",
+    studentName: userData.name || "นักศึกษาฝึกสอน",
+    studentId: userData.studentId || "670XXXXXXXXX",
     major: userData.subjectGroup || "สาขาวิชาเทคโนโลยีธุรกิจดิจิทัล",
     institution: userData.university || "มหาวิทยาลัยราชภัฏ",
     schoolName: userData.schoolName || userData.schoolInfo?.name || "วิทยาลัยอาชีวสุพรรณบุรี",
