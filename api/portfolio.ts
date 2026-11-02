@@ -5,7 +5,11 @@ export const config = {
 };
 
 function getDb() {
-  const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+  const connectionString =
+    process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL ||
+    process.env.STORAGE_URL ||
+    process.env.STORAGE_DATABASE_URL;
   if (!connectionString) {
     return null;
   }
