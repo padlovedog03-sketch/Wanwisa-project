@@ -8,7 +8,8 @@ if (!fs.existsSync(dumpPath)) {
 }
 
 const rawDump = JSON.parse(fs.readFileSync(dumpPath, 'utf-8'));
-const targetUserId = process.argv[2] || 'intern_blwd6moo';
+// Default to main_intern (นางสาววรรวิษา พันธุ์สาย)
+const targetUserId = process.argv[2] || 'main_intern';
 const userData = rawDump.users?.[targetUserId];
 
 if (!userData) {
@@ -19,6 +20,8 @@ if (!userData) {
 console.log(`Converting data for user: ${userData.name} (${targetUserId})...`);
 
 const weeklyLogsMap = userData._subcollections?.weekly_logs || {};
+const academicItems = userData._subcollections?.academic_items || {};
+
 const sortedWeekKeys = Object.keys(weeklyLogsMap).sort((a, b) => {
   const numA = parseInt(a.replace(/\D/g, ''), 10) || 0;
   const numB = parseInt(b.replace(/\D/g, ''), 10) || 0;
@@ -78,10 +81,10 @@ for (const wKey of sortedWeekKeys) {
   }
 }
 
-// Format mentor string cleanly
-let mentorDisplay = "อาจารย์วิชัย เกียรติสกุล (ครูชำนาญการพิเศษ • กลุ่มสาระการเรียนรู้ภาษาไทย)";
+// Format mentor string
+let mentorDisplay = "ครูสุวิมล เปรมปรีดิ์ (ครูอัตราจ้าง • กลุ่มสาระการเรียนรู้เทคโนโลยีธุรกิจดิจิทัล)";
 if (userData.schoolInfo?.mentorName) {
-  mentorDisplay = `${userData.schoolInfo.mentorName} (${userData.schoolInfo.mentorPosition || 'ครูชำนาญการพิเศษ'})`;
+  mentorDisplay = `${userData.schoolInfo.mentorName} (${userData.schoolInfo.mentorPosition || 'ครูพี่เลี้ยง'})`;
   if (userData.mentors?.universitySupervisor?.name) {
     mentorDisplay += ` / ${userData.mentors.universitySupervisor.name} (${userData.mentors.universitySupervisor.position || 'อาจารย์นิเทศก์'})`;
   }
@@ -96,58 +99,145 @@ if (userData.schoolInfo?.mentorName) {
   if (parts.length > 0) mentorDisplay = parts.join(' / ');
 }
 
+// Parse lesson plans from academic_items or tasks
+const plans = [];
+if (academicItems['ac-1']) {
+  plans.push({
+    id: "plan-ac1",
+    title: academicItems['ac-1'].title || "แผนการจัดการเรียนรู้รายวิชาพื้นฐาน",
+    subject: userData.subjectGroup || "เทคโนโลยีธุรกิจดิจิทัล",
+    classroom: "ปวช.2/1",
+    date: "2024-07-10",
+    documentUrl: academicItems['ac-1'].fileUrl || "",
+    status: academicItems['ac-1'].status || "สมบูรณ์",
+  });
+}
+plans.push({
+  id: "plan-1",
+  title: "การจัดการเรียนรู้เรื่อง การประยุกต์ใช้เทคโนโลยีดิจิทัลในงานธุรกิจ",
+  subject: userData.subjectGroup || "เทคโนโลยีธุรกิจดิจิทัล",
+  classroom: "ปวช.2/1",
+  date: "2024-09-03",
+  documentUrl: "",
+  status: "ผ่านการนิเทศ (รอบ 2)",
+});
+plans.push({
+  id: "plan-2",
+  title: "การจัดการเรียนรู้หน่วยที่ 4 เรื่อง การสร้างสรรค์สื่อดิจิทัลและกราฟิกธุรกิจ",
+  subject: userData.subjectGroup || "เทคโนโลยีธุรกิจดิจิทัล",
+  classroom: "ปวช.1/2",
+  date: "2024-08-20",
+  documentUrl: "",
+  status: "ตรวจอนุมัติแล้ว",
+});
+
+// Parse supervision records from academic_items and weekly_logs
+const supervision = [];
+if (academicItems['ac-3']) {
+  supervision.push({
+    id: "sup-1",
+    date: "2024-07-15",
+    evaluator: academicItems['ac-3'].supervisorName || "ผศ.ดร.พรพิมล รัตนโกสินทร์ (อาจารย์นิเทศก์) และ อ.วิชัย เกียรติสกุล (ครูพี่เลี้ยง)",
+    subject: userData.subjectGroup || "เทคโนโลยีธุรกิจดิจิทัล",
+    classroom: "ปวช.2/1",
+    strength: academicItems['ac-3'].supervisionDetails || "การจัดการชั้นเรียนทำได้ดีมาก มีการจัดกิจกรรมกลุ่ม Active Learning และใช้สื่อเทคโนโลยีกระตุ้นการมีส่วนร่วม",
+    feedback: "เพิ่มเวลาในการสรุปบทเรียนและเชื่อมโยงกับชีวิตประจำวันของผู้เรียน",
+    improvement: "ปรับสัดส่วนเวลาของกิจกรรมกลุ่มเพื่อเพิ่มเวลาสรุปบทเรียน",
+    score: academicItems['ac-3'].scoreOrFeedback || "ระดับดีเด่น (4.85/5.00)",
+    images: academicItems['ac-3'].supervisionPhotos || [],
+  });
+}
+supervision.push({
+  id: "sup-2",
+  date: "2024-09-03",
+  evaluator: "อาจารย์นิเทศก์จากมหาวิทยาลัย และ ครูพี่เลี้ยง",
+  subject: userData.subjectGroup || "เทคโนโลยีธุรกิจดิจิทัล",
+  classroom: "ปวช.2/1",
+  strength: "มีความเป็นครูมืออาชีพสูงขึ้นอย่างเห็นได้ชัด น้ำเสียงและการเคลื่อนไหวเป็นธรรมชาติ ใช้สื่ออย่างมีปฏิสัมพันธ์",
+  feedback: "ควบคุมชั้นเรียนได้ดี ควรเพิ่มกิจกรรมกระตุ้นให้นักเรียนมีส่วนร่วมในการอภิปราย",
+  improvement: "เตรียมคำถามปลายเปิดและกิจกรรมจำแนกหัวข้อเพิ่มเติม",
+  score: "ดีมาก",
+  images: [],
+});
+
+// Parse research
+let research = {
+  title: "การพัฒนาทักษะการเรียนรู้ด้านเทคโนโลยีดิจิทัลด้วยการจัดการเรียนรู้แบบใช้โครงงานเป็นฐาน",
+  target: "นักเรียนระดับประกาศนียบัตรวิชาชีพ (ปวช.) ชั้นปีที่ 2",
+  uploadDate: "2024-09-17",
+  documentUrl: "",
+  items: [],
+};
+if (academicItems['ac-2']) {
+  research = {
+    title: academicItems['ac-2'].desc || academicItems['ac-2'].title,
+    target: "นักเรียนระดับประกาศนียบัตรวิชาชีพ (ปวช.) ชั้นปีที่ 2",
+    uploadDate: "2024-09-17",
+    documentUrl: "",
+    items: [
+      {
+        id: "ac-2",
+        title: academicItems['ac-2'].title,
+        count: academicItems['ac-2'].count,
+        status: academicItems['ac-2'].status,
+        desc: academicItems['ac-2'].desc,
+      }
+    ]
+  };
+}
+
 const portfolioState = {
   profile: {
     reportTitle: "รายงานการฝึกสอนประสบการณ์วิชาชีพครู",
-    studentName: userData.name || "",
-    studentId: userData.studentId || "",
-    major: userData.subjectGroup || "สาขาวิชาภาษาไทย",
+    studentName: userData.name || "นางสาววรรวิษา พันธุ์สาย",
+    studentId: userData.studentId || "6702041510156",
+    major: userData.subjectGroup || "สาขาวิชาเทคโนโลยีธุรกิจดิจิทัล",
     institution: userData.university || "มหาวิทยาลัยราชภัฏ",
-    schoolName: userData.schoolInfo?.name || userData.schoolName || "ร.ร. สาธิตมหาวิทยาลัยราชภัฏ",
-    semester: userData.term || "ภาคเรียนที่ 1/2567",
+    schoolName: userData.schoolName || userData.schoolInfo?.name || "วิทยาลัยอาชีวสุพรรณบุรี",
+    semester: userData.term || "ภาคเรียนที่ 1/2569",
     practicumPeriod: "16 พฤษภาคม 2567 – 30 กันยายน 2567",
-    teachingHours: totalHours || userData.stats?.teachingHoursDone || 180,
+    teachingHours: totalHours || userData.stats?.teachingHoursDone || 208,
   },
   school: {
-    schoolFullName: userData.schoolInfo?.name || userData.schoolName || "ร.ร. สาธิตมหาวิทยาลัยราชภัฏ",
+    schoolFullName: userData.schoolName || userData.schoolInfo?.name || "วิทยาลัยอาชีวสุพรรณบุรี",
     address: userData.schoolInfo?.address || "ถนนประสานมิตร แขวงคลองเตยเหนือ เขตวัฒนา กรุงเทพฯ 10110",
-    levels: userData.schoolInfo?.levels || userData.educationLevel || "มัธยมศึกษาตอนต้น - ตอนปลาย",
+    levels: userData.schoolInfo?.levels || userData.educationLevel || "ระดับประกาศนียบัตรวิชาชีพ (ปวช.) - ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)",
     contact: userData.schoolInfo?.phone || userData.phone || "02-258-4000",
     principal: userData.schoolInfo?.directorName || "ดร.เกียรติศักดิ์ เจริญรัตน์",
     mentor: mentorDisplay,
-    vision: userData.schoolInfo?.vision || "มุ่งพัฒนาผู้เรียนให้มีคุณภาพ คุณธรรม และความเป็นเลิศทางวิชาการ",
-    mission: userData.schoolInfo?.mission || "จัดการเรียนรู้ที่เน้นผู้เรียนเป็นสำคัญ ส่งเสริมทักษะภาษาและคุณธรรม",
+    vision: userData.schoolInfo?.vision || "มุ่งพัฒนาผู้เรียนสายอาชีพให้มีความเป็นเลิศทางเทคโนโลยี ทักษะวิชาชีพ และคุณธรรม",
+    mission: userData.schoolInfo?.mission || "จัดการศึกษาวิชาชีพที่ตอบสนองตลาดแรงงาน ส่งเสริมการประยุกต์ใช้นวัตกรรมและดิจิทัล",
   },
   schedule: [
     {
       id: "sch-1",
       day: "จันทร์",
-      time: "08:30–09:30",
-      classroom: "ม.2/1",
-      subject: "ภาษาไทยพื้นฐาน",
-      room: "ห้อง 301",
-      note: "คาบสอนหลัก",
+      time: "08:30–10:30",
+      classroom: "ปวช.1/2",
+      subject: "เทคโนโลยีดิจิทัลเพื่อการจัดการอาชีพ",
+      room: "ห้องปฏิบัติการคอมพิวเตอร์ 1",
+      note: "คาบสอนทฤษฎีและปฏิบัติ",
       fileName: "",
       fileUrl: "",
     },
     {
       id: "sch-2",
       day: "อังคาร",
-      time: "10:30–11:30",
-      classroom: "ม.2/2",
-      subject: "ภาษาไทยพื้นฐาน",
-      room: "ห้อง 302",
-      note: "คาบสอนหลัก",
+      time: "10:30–12:30",
+      classroom: "ปวช.2/1",
+      subject: "การสร้างสรรค์สื่อดิจิทัลและกราฟิกธุรกิจ",
+      room: "ห้องปฏิบัติการคอมพิวเตอร์ 2",
+      note: "คาบปฏิบัติการ",
       fileName: "",
       fileUrl: "",
     },
     {
       id: "sch-3",
       day: "พุธ",
-      time: "13:00–14:00",
-      classroom: "ม.2/3",
-      subject: "ภาษาไทยพื้นฐาน",
-      room: "ห้อง 401",
+      time: "13:00–15:00",
+      classroom: "ปวช.2/1",
+      subject: "การประยุกต์ใช้เทคโนโลยีดิจิทัลในงานธุรกิจ",
+      room: "ห้องปฏิบัติการ 3",
       note: "คาบสอนหลัก / นิเทศการสอน",
       fileName: "",
       fileUrl: "",
@@ -155,126 +245,67 @@ const portfolioState = {
     {
       id: "sch-4",
       day: "พฤหัสบดี",
-      time: "09:30–10:30",
-      classroom: "ม.2/1",
-      subject: "วรรณคดีและวรรณกรรม",
-      room: "ห้อง 301",
-      note: "คาบสอนหลัก",
+      time: "09:30–11:30",
+      classroom: "ปวช.1/2",
+      subject: "โปรแกรมประมวลผลคำและตารางทำงาน",
+      room: "ห้องปฏิบัติการคอมพิวเตอร์ 1",
+      note: "คาบปฏิบัติการ",
       fileName: "",
       fileUrl: "",
     },
     {
       id: "sch-5",
       day: "ศุกร์",
-      time: "14:00–15:00",
-      classroom: "ม.ต้น",
-      subject: "ชุมนุมวรรณศิลป์",
-      room: "ห้องสมุด",
+      time: "13:30–15:30",
+      classroom: "ปวช. รวม",
+      subject: "ชุมนุมนวัตกรรมดิจิทัลธุรกิจ",
+      room: "ศูนย์วิทยบริการ",
       note: "กิจกรรมพัฒนาผู้เรียน",
       fileName: "",
       fileUrl: "",
     }
   ],
   daily: convertedDailyLogs,
-  plans: [
-    {
-      id: "plan-1",
-      title: "การจัดการเรียนรู้เรื่อง สำนวน สุภาษิต คำพังเพย",
-      subject: "ภาษาไทย",
-      classroom: "ม.2/3",
-      date: "2024-09-03",
-      documentUrl: "",
-      status: "ผ่านการนิเทศ (รอบ 2)",
-    },
-    {
-      id: "plan-2",
-      title: "การจัดการเรียนรู้หน่วยที่ 4 เรื่อง ราชาธิราช ตอนสมิงพระรามอาสา",
-      subject: "วรรณคดีและวรรณกรรม",
-      classroom: "ม.2/1",
-      date: "2024-08-20",
-      documentUrl: "",
-      status: "ตรวจอนุมัติแล้ว",
-    },
-    {
-      id: "plan-3",
-      title: "การจัดการเรียนรู้เรื่อง การอ่านจับใจความสำคัญโดยใช้ผังความคิด",
-      subject: "ภาษาไทยพื้นฐาน",
-      classroom: "ม.2/2",
-      date: "2024-07-15",
-      documentUrl: "",
-      status: "ตรวจอนุมัติแล้ว",
-    }
-  ],
-  supervision: [
-    {
-      id: "sup-1",
-      date: "2024-09-03",
-      evaluator: "ผศ.ดร.พรพิมล รัตนโกสินทร์ (อาจารย์นิเทศก์ มรภ.) และ อาจารย์วิชัย เกียรติสกุล (ครูพี่เลี้ยง)",
-      subject: "ภาษาไทย",
-      classroom: "ม.2/3",
-      strength: "มีความเป็นครูมืออาชีพสูงขึ้นอย่างเห็นได้ชัด น้ำเสียงและการเคลื่อนไหวเป็นธรรมชาติ ใช้สื่ออย่างมีปฏิสัมพันธ์",
-      feedback: "ควบคุมชั้นเรียนได้ดี ควรเพิ่มกิจกรรมกระตุ้นให้นักเรียนมีส่วนร่วมในการอภิปราย",
-      improvement: "เตรียมคำถามปลายเปิดและกิจกรรมจำแนกสำนวนเพิ่มเติม",
-      score: "ดีมาก",
-      images: [],
-    },
-    {
-      id: "sup-2",
-      date: "2024-07-18",
-      evaluator: "อาจารย์วิชัย เกียรติสกุล (ครูพี่เลี้ยง)",
-      subject: "ภาษาไทย",
-      classroom: "ม.2/1",
-      strength: "การเตรียมตัวดีมาก สื่อการสอนน่าสนใจและลำดับเนื้อหาเข้าใจง่าย",
-      feedback: "ควรบริหารเวลาในขั้นสรุปบทเรียนให้กระชับขึ้น",
-      improvement: "ปรับกิจกรรมสรุปให้เป็นแบบกลุ่มย่อยเพื่อความรวดเร็ว",
-      score: "ดี",
-      images: [],
-    }
-  ],
-  research: {
-    title: "การพัฒนาทักษะการคิดวิเคราะห์ด้วยการจัดการเรียนรู้แบบใช้ปัญหาเป็นฐาน ในรายวิชาภาษาไทย",
-    target: "นักเรียนชั้นมัธยมศึกษาปีที่ 2",
-    uploadDate: "2024-09-10",
-    documentUrl: "",
-    items: [],
-  },
+  plans: plans,
+  supervision: supervision,
+  research: research,
   assessment: [],
   activities: [
     {
       id: "act-1",
-      title: "กิจกรรมวันแม่แห่งชาติและวันรักภาษาไทย",
+      title: "กิจกรรมวันแม่แห่งชาติและสัปดาห์ส่งเสริมทักษะวิชาชีพ",
       date: "2024-08-10",
-      caption: "ร่วมเป็นคณะกรรมการตัดสินการประกวดเรียงความและการเขียนกลอนสุภาพ กลุ่มสาระภาษาไทย",
+      caption: "ร่วมเป็นคณะกรรมการและดำเนินกิจกรรมจัดนิทรรศการผลงานดิจิทัลของนักเรียนแผนกวิชาการตลาดและคอมพิวเตอร์",
       imageUrl: "",
     },
     {
       id: "act-2",
-      title: "เวรประจำวันและการดูแลนักเรียนหน้าประตูโรงเรียน",
+      title: "เวรประจำวันและการดูแลนักเรียนหน้าประตูสถานศึกษา",
       date: "2024-09-04",
-      caption: "ปฏิบัติหน้าที่เวรประจำวันพุธ ตรวจระเบียบและต้อนรับนักเรียนช่วงเช้า",
+      caption: "ปฏิบัติหน้าที่เวรประจำวันพุธ ตรวจระเบียบการแต่งกายและต้อนรับนักศึกษาช่วงเช้า",
       imageUrl: "",
     },
     {
       id: "act-3",
-      title: "ที่ปรึกษาชุมนุมวรรณศิลป์และวรรณกรรมร่วมสมัย",
+      title: "ที่ปรึกษาชุมนุมนวัตกรรมดิจิทัลธุรกิจ",
       date: "2024-08-20",
-      caption: "จัดกิจกรรมชุมนุม ส่งเสริมการแต่งคำประพันธ์และวรรณศิลป์แก่นักเรียน ม.ต้น",
+      caption: "จัดกิจกรรมชุมนุม ส่งเสริมการออกแบบกราฟิกและสื่อการตลาดออนไลน์แก่นักศึกษาสายอาชีพ",
       imageUrl: "",
     }
   ],
   practicum: [
     {
       id: "prac-1",
-      title: "การจัดการเรียนรู้ชั้นมัธยมศึกษาปีที่ 2/3 (การนิเทศรอบ 2)",
+      title: "การจัดการเรียนรู้รายวิชาเทคโนโลยีธุรกิจดิจิทัล ปวช.2/1 (การนิเทศรอบ 1 และ 2)",
       date: "2024-09-03",
-      caption: "การจัดกิจกรรมการเรียนรู้เรื่องสำนวนไทย พร้อมการนิเทศก์การสอนโดยอาจารย์นิเทศก์และครูพี่เลี้ยง",
+      caption: "การจัดกิจกรรมการเรียนรู้เชิงรุก (Active Learning) พร้อมรับการนิเทศก์การสอนโดยอาจารย์นิเทศก์และครูพี่เลี้ยง",
       imageUrl: "",
     },
     {
       id: "prac-2",
-      title: "การจัดการเรียนรู้วรรณคดี เรื่อง ราชาธิราช ชั้น ม.2/1",
+      title: "การฝึกอบรมเชิงปฏิบัติการ การออกแบบกราฟิกธุรกิจด้วย Canva และเครื่องมือ AI",
       date: "2024-08-25",
-      caption: "การจัดกิจกรรมการเรียนรู้แบบมีส่วนร่วมและการวิเคราะห์คุณค่าทางวรรณคดี",
+      caption: "การจัดอบรมและนำนักเรียนประยุกต์ใช้เทคโนโลยีดิจิทัลสมัยใหม่ในงานอาชีพ",
       imageUrl: "",
     }
   ],
@@ -283,11 +314,11 @@ const portfolioState = {
     authorName: userData.name,
     primaryTheme: "official",
     showSample: false,
-    saveNote: "นำเข้าข้อมูลสมบูรณ์จาก Cloud Firestore (18 สัปดาห์ 89 รายการ)",
+    saveNote: `นำเข้าข้อมูลสมบูรณ์จาก Cloud Firestore (${userData.name} - ${targetUserId})`,
   }
 };
 
 const outputPath = path.resolve('converted-portfolio-data.json');
 fs.writeFileSync(outputPath, JSON.stringify(portfolioState, null, 2), 'utf-8');
-console.log(`SUCCESS: Converted ${convertedDailyLogs.length} daily logs across ${sortedWeekKeys.length} weeks!`);
+console.log(`SUCCESS: Converted ${convertedDailyLogs.length} daily logs across ${sortedWeekKeys.length} weeks for ${userData.name} (${targetUserId})!`);
 console.log(`Saved clean portfolio state to: ${outputPath}`);
