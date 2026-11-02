@@ -27,3 +27,4 @@ export function calculateFieldsProgress(fields: Record<string, string | number |
   }).length;
   return Math.round((filled / entries.length) * 100);
 }
+

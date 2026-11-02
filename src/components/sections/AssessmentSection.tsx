@@ -145,3 +145,4 @@ export const AssessmentSection: React.FC<AssessmentSectionProps> = ({
     </div>
   );
 };
+

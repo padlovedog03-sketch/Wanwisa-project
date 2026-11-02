@@ -190,3 +190,4 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({
     </div>
   );
 };
+

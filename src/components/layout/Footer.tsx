@@ -11,3 +11,4 @@ export const Footer: React.FC<FooterProps> = ({ authorName }) => {
     </footer>
   );
 };
+

@@ -133,3 +133,4 @@ export function saveLocalPortfolio(state: PortfolioState): boolean {
     return false;
   }
 }
+

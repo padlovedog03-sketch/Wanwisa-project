@@ -163,3 +163,4 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
     </div>
   );
 };
+

@@ -33,3 +33,4 @@ describe('Profile Progress Calculation (AC1)', () => {
     expect(calculateFieldsProgress(profile)).toBe(22);
   });
 });
+

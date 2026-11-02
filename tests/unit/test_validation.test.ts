@@ -44,3 +44,4 @@ describe('calculateFieldsProgress utility', () => {
     expect(calculateFieldsProgress(fields)).toBe(50);
   });
 });
+

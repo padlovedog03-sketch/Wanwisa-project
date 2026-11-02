@@ -253,3 +253,4 @@ export const DailyLogSection: React.FC<DailyLogSectionProps> = ({
     </div>
   );
 };
+

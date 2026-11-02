@@ -20,3 +20,4 @@ export const Toast: React.FC<ToastProps> = ({ message, type, visible }) => {
     </div>
   );
 };
+

@@ -102,3 +102,4 @@ export const ResearchSection: React.FC<ResearchSectionProps> = ({
     </div>
   );
 };
+

@@ -163,3 +163,4 @@ export const PracticumSection: React.FC<PracticumSectionProps> = ({
     </div>
   );
 };
+

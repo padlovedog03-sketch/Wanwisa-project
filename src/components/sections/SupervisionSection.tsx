@@ -242,3 +242,4 @@ export const SupervisionSection: React.FC<SupervisionSectionProps> = ({
     </div>
   );
 };
+

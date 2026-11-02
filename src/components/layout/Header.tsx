@@ -109,3 +109,4 @@ export const Header: React.FC<HeaderProps> = ({ activeSection, onSelectSection, 
     </header>
   );
 };
+

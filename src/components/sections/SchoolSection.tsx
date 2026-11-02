@@ -133,3 +133,4 @@ export const SchoolSection: React.FC<SchoolSectionProps> = ({
     </div>
   );
 };
+

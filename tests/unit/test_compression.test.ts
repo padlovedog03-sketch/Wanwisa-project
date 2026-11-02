@@ -10,3 +10,4 @@ describe('Image Compression Constants & Boundary Checks (AC5)', () => {
     expect(MAX_DIMENSION_PX).toBe(600);
   });
 });
+

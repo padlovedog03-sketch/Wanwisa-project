@@ -69,3 +69,4 @@ export async function compressImageFile(file: File): Promise<CompressedImage> {
     reader.readAsDataURL(file);
   });
 }
+
