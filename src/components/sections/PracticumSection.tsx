@@ -83,24 +83,37 @@ export const PracticumSection: React.FC<PracticumSectionProps> = ({
             ยังไม่มีรูปฝึกสอน กด "เพิ่มรูป" เพื่อเริ่มต้น
           </p>
         ) : (
-          practicum.map((item) => (
-            <div key={item.id} className="relative border border-[#d7e5f5] rounded-xl p-4 bg-[#f9fcff] space-y-3">
-              <button
-                type="button"
-                onClick={() => handleDelete(item.id)}
-                className="absolute top-3 right-3 p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
-                title="ลบรายการ"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+          practicum.map((item, index) => (
+            <div key={item.id} className="border border-[#d7e5f5] rounded-2xl p-5 bg-[#f9fcff] space-y-4 shadow-xs">
+              <div className="flex items-center justify-between pb-3 border-b border-blue-100/60">
+                <span className="text-xs font-bold text-[#174a80] flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-blue-100 text-[#1267d6] flex items-center justify-center text-[11px] font-extrabold">
+                    {index + 1}
+                  </span>
+                  {item.title ? item.title : `รูปฝึกสอนที่ ${index + 1}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(item.id)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors border border-transparent hover:border-red-100"
+                  title="ลบรายการนี้"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>ลบ</span>
+                </button>
+              </div>
 
-              <div className="h-44 w-full rounded-lg bg-blue-50 border border-dashed border-blue-200 overflow-hidden grid place-items-center relative">
+              <div className="min-h-[220px] max-h-[360px] h-64 md:h-72 w-full rounded-xl bg-slate-900/5 border border-dashed border-blue-200 overflow-hidden flex items-center justify-center p-1.5 relative">
                 {item.imageUrl ? (
-                  <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                  <img
+                    src={item.imageUrl}
+                    alt={item.title || 'รูปบรรยากาศการฝึกสอน'}
+                    className="max-h-full max-w-full object-contain rounded-lg shadow-sm"
+                  />
                 ) : (
-                  <div className="text-center text-[#587895] p-4">
-                    <ImagePlus className="w-8 h-8 mx-auto mb-1 opacity-50" />
-                    <span className="text-xs">ยังไม่มีรูปภาพตัวอย่าง</span>
+                  <div className="text-center text-[#587895] p-6">
+                    <ImagePlus className="w-10 h-10 mx-auto mb-2 opacity-50 text-[#1267d6]" />
+                    <span className="text-xs font-semibold">ยังไม่มีรูปภาพตัวอย่าง กด "เลือกรูปภาพ" ด้านล่าง</span>
                   </div>
                 )}
               </div>
