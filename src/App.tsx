@@ -39,7 +39,7 @@ export function App() {
     onConfirm: () => {},
   });
 
-  const { state, updateState, isDirty, lastSaved, saveAll, resetToSaved } = usePortfolioState();
+  const { state, updateState, isDirty, lastSaved, saveAll, resetToSaved, importFromDump } = usePortfolioState();
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToastState({ message, type, visible: true });
@@ -61,8 +61,8 @@ export function App() {
     });
   };
 
-  const handleSave = () => {
-    const success = saveAll();
+  const handleSave = async () => {
+    const success = await saveAll();
     if (success) {
       showToast('บันทึกข้อมูลสำเร็จเรียบร้อย');
     } else {
@@ -228,10 +228,13 @@ export function App() {
           {activeSection === 'settings' && (
             <SettingsSection
               settings={state.settings}
+              fullState={state}
               onChange={(updated) => updateState('settings', updated)}
               onSave={handleSave}
               onPrint={handlePrint}
               onClearSection={handleClearSection}
+              onImportJson={importFromDump}
+              onShowToast={showToast}
             />
           )}
         </div>

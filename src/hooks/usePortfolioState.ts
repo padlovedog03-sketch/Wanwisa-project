@@ -1,11 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PortfolioState } from '../types/portfolio';
-import { loadLocalPortfolio, saveLocalPortfolio } from '../services/storage';
+import {
+  loadLocalPortfolio,
+  saveLocalPortfolio,
+  syncWithPostgres,
+  fetchFromPostgres,
+  importPortfolioFromJson,
+} from '../services/storage';
 
 export function usePortfolioState() {
   const [state, setState] = useState<PortfolioState>(loadLocalPortfolio);
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [lastSaved, setLastSaved] = useState<string>('');
+
+  // Initial fetch from PostgreSQL if running on Vercel
+  useEffect(() => {
+    fetchFromPostgres().then((remoteData) => {
+      if (remoteData) {
+        setState(remoteData);
+        saveLocalPortfolio(remoteData);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -26,11 +42,13 @@ export function usePortfolioState() {
     setIsDirty(true);
   }, []);
 
-  const saveAll = useCallback(() => {
-    const success = saveLocalPortfolio(state);
-    if (success) {
+  const saveAll = useCallback(async () => {
+    const localOk = saveLocalPortfolio(state);
+    if (localOk) {
       setIsDirty(false);
       setLastSaved(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
+      // Asynchronously sync with PostgreSQL
+      syncWithPostgres(state);
       return true;
     }
     return false;
@@ -41,6 +59,21 @@ export function usePortfolioState() {
     setIsDirty(false);
   }, []);
 
+  const importFromDump = useCallback((jsonString: string) => {
+    try {
+      const imported = importPortfolioFromJson(jsonString);
+      setState(imported);
+      saveLocalPortfolio(imported);
+      syncWithPostgres(imported);
+      setIsDirty(false);
+      setLastSaved(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
+      return true;
+    } catch (err) {
+      console.error("Failed to parse and import JSON dump:", err);
+      return false;
+    }
+  }, []);
+
   return {
     state,
     updateState,
@@ -48,6 +81,6 @@ export function usePortfolioState() {
     lastSaved,
     saveAll,
     resetToSaved,
+    importFromDump,
   };
 }
-
