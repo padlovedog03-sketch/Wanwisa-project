@@ -8,12 +8,17 @@ __pycache__/
 !.env.example
 .DS_Store
 .next/
+.vercel/
 dist/
 build/
 *firebase-adminsdk*.json
 firebase-firestore-dump.json
 canva-original-firebase-data.json
 canva-rtdb-found.json
+*.pem
+*.key
+credentials.json
+client_secret*.json
 scripts/neutrality-denylist.local.txt
 .claude/worktrees/
 .verify/
