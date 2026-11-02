@@ -1,16 +1,25 @@
-.venv/
+# Dependencies & Build Outputs
 node_modules/
-__pycache__/
-*.pyc
-.pytest_cache/
+dist/
+build/
+.next/
+.vercel/
+
+# Environment Variables
 .env
 .env.*
 !.env.example
+
+# OS & Cache Files
 .DS_Store
-.next/
-.vercel/
-dist/
-build/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.verify/
+
+# Sensitive & Secret Files
 *firebase-adminsdk*.json
 firebase-firestore-dump.json
 canva-original-firebase-data.json
@@ -20,6 +29,20 @@ converted-portfolio-data.json
 *.key
 credentials.json
 client_secret*.json
-scripts/neutrality-denylist.local.txt
-.claude/worktrees/
-.verify/
+
+# Jarvis Framework Internal Tools (Kept local, excluded from project repo)
+.agents/
+.claude/
+.githooks/
+ci-examples/
+doc/
+legacy/
+scripts/
+tests/ci/
+tests/coordinator/
+tests/framework/
+tests/hooks/
+tests/scars/
+AGENTS.md
+CHANGELOG-template.md
+CLAUDE.md

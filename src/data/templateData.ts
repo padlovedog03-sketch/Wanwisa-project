@@ -131,3 +131,4 @@ export const TEMPLATE_PORTFOLIO_STATE: PortfolioState = {
     saveNote: "ข้อมูลตั้งต้นตัวอย่าง (Template Mode)",
   },
 };
+

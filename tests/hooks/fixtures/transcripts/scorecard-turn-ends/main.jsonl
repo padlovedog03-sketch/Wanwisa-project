@@ -1,5 +1,0 @@
-{"type": "user", "timestamp": "2026-10-20T00:00:00.000Z", "message": {"role": "user", "content": "One owner request."}}
-{"type": "assistant", "timestamp": "2026-10-20T00:00:05.000Z", "message": {"id": "r1", "role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "Tier: 0 — the first part of one reply."}]}}
-{"type": "assistant", "timestamp": "2026-10-20T00:00:06.000Z", "message": {"id": "r1", "role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "The second line of the same reply."}]}}
-{"type": "user", "timestamp": "2026-10-20T00:01:00.000Z", "message": {"role": "user", "content": "<task-notification><task-id>b1</task-id> completed</task-notification>"}}
-{"type": "assistant", "timestamp": "2026-10-20T00:01:05.000Z", "message": {"id": "r2", "role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "A second reply."}]}}
