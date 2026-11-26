@@ -164,7 +164,12 @@ export function App() {
           {activeSection === 'daily' && (
             <DailyLogSection
               daily={state.daily}
+              totalWeeks={state.settings.totalWeeks}
               onChange={(updated) => updateState('daily', updated)}
+              onAddWeek={(nextTotalWeeks) => {
+                updateState('settings', { ...state.settings, totalWeeks: nextTotalWeeks });
+                showToast(`เพิ่มสัปดาห์ที่ ${nextTotalWeeks} แล้ว (อย่าลืมกดบันทึกทั้งหมด)`);
+              }}
               onSaveAll={handleSave}
               onConfirmClear={(task) =>
                 openConfirm('ยืนยันการล้างข้อมูลวันนี้', 'ต้องการล้างบันทึกประจำวันนี้ใช่หรือไม่?', task)

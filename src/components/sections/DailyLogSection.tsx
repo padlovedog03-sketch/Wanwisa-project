@@ -1,24 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { DailyLogEntry, WorkDay } from '../../types/portfolio';
-import { ArrowLeft, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
 
 interface DailyLogSectionProps {
   daily: DailyLogEntry[];
+  totalWeeks?: number;
   onChange: (updated: DailyLogEntry[]) => void;
+  onAddWeek: (nextTotalWeeks: number) => void;
   onSaveAll: () => void;
   onConfirmClear: (task: () => void) => void;
 }
 
 const WORK_DAYS: WorkDay[] = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์'];
+const DEFAULT_WEEKS = 18;
 
 export const DailyLogSection: React.FC<DailyLogSectionProps> = ({
   daily,
+  totalWeeks,
   onChange,
+  onAddWeek,
   onSaveAll,
   onConfirmClear,
 }) => {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(0);
+
+  const effectiveTotalWeeks = useMemo(() => {
+    const maxDataWeek = daily.reduce((max, item) => (item.week > max ? item.week : max), DEFAULT_WEEKS);
+    return Math.max(DEFAULT_WEEKS, totalWeeks || DEFAULT_WEEKS, maxDataWeek);
+  }, [daily, totalWeeks]);
 
   const getDayEntry = (week: number, dayIndex: number): DailyLogEntry | undefined => {
     return daily.find((item) => item.week === week && item.dayIndex === dayIndex);
@@ -67,13 +77,22 @@ export const DailyLogSection: React.FC<DailyLogSectionProps> = ({
     <div className="border border-[#d7e5f5] rounded-2xl bg-white p-6 shadow-sm space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
         <div>
-          <h3 className="text-xl font-bold text-[#0c3574]">บันทึกรายวัน (18 สัปดาห์)</h3>
+          <h3 className="text-xl font-bold text-[#0c3574]">บันทึกรายวัน ({effectiveTotalWeeks} สัปดาห์)</h3>
           <p className="text-xs text-[#587895] mt-1">
-            เลือกดูสัปดาห์ที่ 1–18 และบันทึกผลการฝึกสอนรายวันจันทร์ถึงศุกร์
+            เลือกดูสัปดาห์ที่ 1–{effectiveTotalWeeks} และบันทึกผลการฝึกสอนรายวันจันทร์ถึงศุกร์
           </p>
         </div>
         <div className="flex gap-2">
-          {selectedWeek !== null && (
+          {selectedWeek === null ? (
+            <button
+              type="button"
+              onClick={() => onAddWeek(effectiveTotalWeeks + 1)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-[#1267d6] hover:bg-blue-100 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              เพิ่มสัปดาห์
+            </button>
+          ) : (
             <button
               type="button"
               onClick={() => setSelectedWeek(null)}
@@ -96,7 +115,7 @@ export const DailyLogSection: React.FC<DailyLogSectionProps> = ({
 
       {selectedWeek === null ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 18 }, (_, i) => i + 1).map((week) => {
+          {Array.from({ length: effectiveTotalWeeks }, (_, i) => i + 1).map((week) => {
             const count = WORK_DAYS.filter((_, dayIdx) => Boolean(getDayEntry(week, dayIdx))).length;
             const isComplete = count === 5;
             return (

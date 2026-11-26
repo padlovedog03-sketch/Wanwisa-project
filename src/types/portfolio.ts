@@ -113,6 +113,7 @@ export interface AppSettings {
   primaryTheme: 'official' | 'light' | 'deep';
   showSample: boolean;
   saveNote: string;
+  totalWeeks?: number;
 }
 
 export interface PortfolioState {
